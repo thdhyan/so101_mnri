@@ -1,4 +1,8 @@
 __pycache__/
 *.pyc
 .DS_Store
-images/
+images/*
+!images/single_arm_overview.png
+!images/dual_arm_overview.png
+!images/single_arm_cameras.png
+!images/dual_arm_cameras.png
