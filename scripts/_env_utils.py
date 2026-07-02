@@ -16,6 +16,18 @@ SCENE_PATHS = {
     "dual": os.path.join(
         _REPO_ROOT, "envs/mujoco/so101_dual_arm/assets/scene.xml"
     ),
+    "pick_lift": os.path.join(
+        _REPO_ROOT, "envs/mujoco/so101_single_arm_pick_lift/assets/scene.xml"
+    ),
+    "pick_place": os.path.join(
+        _REPO_ROOT, "envs/mujoco/so101_single_arm_pick_place/assets/scene.xml"
+    ),
+    "cyl_grasp": os.path.join(
+        _REPO_ROOT, "envs/mujoco/so101_dual_arm_cylinder_grasp/assets/scene.xml"
+    ),
+    "cyl_reach": os.path.join(
+        _REPO_ROOT, "envs/mujoco/so101_dual_arm_cylinder_reach/assets/scene.xml"
+    ),
 }
 
 # Joint order matches the physical SO-101 leader/follower arm (6 DoF incl. gripper).

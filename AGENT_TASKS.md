@@ -24,6 +24,8 @@ where it goes, and how to validate it before calling it done. Read
   `so101`), `MUJOCO_GL=egl` for headless rendering.
 - Before finishing any task: run `scripts/verify_manual.py --env single
   --headless-check` and `--env dual --headless-check`, both must exit 0.
+  Same for the 4 task envs: `--env pick_lift`, `--env pick_place`,
+  `--env cyl_grasp`, `--env cyl_reach`.
 
 ## Open tasks
 
@@ -89,3 +91,9 @@ env, don't assume.
   the new `robots/so101/` layout — check they still import correctly before
   relying on them. `bi_arm_clean_toytable_teleop.py` also imports from
   `lerobot`, an external dependency not in this repo's requirements.
+- `mujoco.mju_mat2Quat` requires float64 in/out buffers on the installed
+  mujoco version — `envs/mujoco/so101_single_arm_pick_lift/env.py` and
+  `so101_single_arm_pick_place/env.py`'s `_get_obs()` compute a float64
+  scratch array then cast to float32 for `tcp_quat`. Follow that pattern if
+  you add similar mat→quat conversions elsewhere; a bare float32 buffer
+  raises `TypeError` at runtime.

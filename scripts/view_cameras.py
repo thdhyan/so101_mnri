@@ -69,7 +69,7 @@ def render_grid(model, data, renderer, cam_names, tile_w, tile_h):
 
 def main():
     parser = argparse.ArgumentParser(description="Tiled view of all cameras in an SO-101 scene")
-    parser.add_argument("--env", choices=["single", "dual"], default="single")
+    parser.add_argument("--env", choices=["single", "dual", "pick_lift", "pick_place", "cyl_grasp", "cyl_reach"], default="single")
     parser.add_argument("--width", type=int, default=480, help="Per-tile render width")
     parser.add_argument("--height", type=int, default=360, help="Per-tile render height")
     parser.add_argument("--save", type=str, default=None,

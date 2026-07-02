@@ -7,6 +7,10 @@ Usage:
     conda activate so101
     python scripts/verify_manual.py --env single
     python scripts/verify_manual.py --env dual
+    python scripts/verify_manual.py --env pick_lift
+    python scripts/verify_manual.py --env pick_place
+    python scripts/verify_manual.py --env cyl_grasp
+    python scripts/verify_manual.py --env cyl_reach
     python scripts/verify_manual.py --env single --headless-check   # no GUI, CI-safe
 
 --headless-check runs the same automated checks as verify_envs.py (compile,
@@ -29,8 +33,20 @@ def load_env(env_name: str, task: str = "push"):
     if env_name == "single":
         from envs.mujoco.so101_single_arm.env import SO101SingleArmEnv, SingleArmEnvConfig
         return SO101SingleArmEnv(SingleArmEnvConfig(task=task))
-    from envs.mujoco.so101_dual_arm.env import SO101DualArmEnv, DualArmEnvConfig
-    return SO101DualArmEnv(DualArmEnvConfig(task=task))
+    if env_name == "dual":
+        from envs.mujoco.so101_dual_arm.env import SO101DualArmEnv, DualArmEnvConfig
+        return SO101DualArmEnv(DualArmEnvConfig(task=task))
+    if env_name == "pick_lift":
+        from envs.mujoco.so101_single_arm_pick_lift.env import SO101SingleArmPickLiftEnv
+        return SO101SingleArmPickLiftEnv()
+    if env_name == "pick_place":
+        from envs.mujoco.so101_single_arm_pick_place.env import SO101SingleArmPickAndPlaceEnv
+        return SO101SingleArmPickAndPlaceEnv()
+    if env_name == "cyl_grasp":
+        from envs.mujoco.so101_dual_arm_cylinder_grasp.env import SO101DualArmCylinderGraspEnv
+        return SO101DualArmCylinderGraspEnv()
+    from envs.mujoco.so101_dual_arm_cylinder_reach.env import SO101DualArmCylinderReachEnv
+    return SO101DualArmCylinderReachEnv()
 
 
 def discover_cameras(model) -> list[str]:
@@ -109,7 +125,7 @@ def interactive(env_name: str, cols: int = 3, tile_w: int = 480, tile_h: int = 3
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--env", choices=["single", "dual"], default="single")
+    ap.add_argument("--env", choices=["single", "dual", "pick_lift", "pick_place", "cyl_grasp", "cyl_reach"], default="single")
     ap.add_argument("--headless-check", action="store_true",
                      help="Run automated checks only, no GUI (CI-safe).")
     args = ap.parse_args()

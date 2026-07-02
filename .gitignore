@@ -6,3 +6,11 @@ images/*
 !images/dual_arm_overview.png
 !images/single_arm_cameras.png
 !images/dual_arm_cameras.png
+!images/pick_lift_overview.png
+!images/pick_lift_cameras.png
+!images/pick_place_overview.png
+!images/pick_place_cameras.png
+!images/cyl_grasp_overview.png
+!images/cyl_grasp_cameras.png
+!images/cyl_reach_overview.png
+!images/cyl_reach_cameras.png

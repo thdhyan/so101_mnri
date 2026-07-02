@@ -1,0 +1,63 @@
+<mujoco model="so101_single_arm_pick_lift_scene">
+  <compiler angle="radian" meshdir="../../../../robots/so101/meshes" autolimits="true"/>
+
+  <option timestep="0.002" gravity="0 0 -9.81"/>
+
+  <include file="../../../../robots/so101/so101_follower.xml"/>
+
+  <statistic center="0.35 0 0.5" extent="1.2" meansize="0.05"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="120" elevation="-20"/>
+    <quality shadowsize="8192"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <material name="table_surface" rgba="0.85 0.75 0.6 1"/>
+    <material name="goal_marker_mat" rgba="0.1 0.9 0.1 0.35"/>
+  </asset>
+
+  <worldbody>
+    <light name="top_light"   pos="0.35 0.0 2.5"  dir="0 0 -1"        diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2" castshadow="true"/>
+    <light name="front_light" pos="0.5 -1.2 1.5"  dir="-0.1 0.6 -0.8" diffuse="0.5 0.5 0.5"/>
+
+    <!-- Floor -->
+    <geom name="floor" type="plane" size="3 3 0.01" material="groundplane" condim="3"/>
+
+    <!-- Table -->
+    <geom name="table_top"     type="box"      size="0.40 0.35 0.02" pos="0.35 0.0 0.80"  material="table_surface" condim="3"/>
+    <geom name="table_leg_fl"  type="cylinder" size="0.02 0.40"      pos="0.70 0.30 0.40"/>
+    <geom name="table_leg_fr"  type="cylinder" size="0.02 0.40"      pos="0.70 -0.30 0.40"/>
+    <geom name="table_leg_bl"  type="cylinder" size="0.02 0.40"      pos="0.02 0.30 0.40"/>
+    <geom name="table_leg_br"  type="cylinder" size="0.02 0.40"      pos="0.02 -0.30 0.40"/>
+
+    <!-- Manipulation object (cube with freejoint, grasp-and-lift target) -->
+    <body name="cube" pos="0.45 0.0 0.83">
+      <freejoint name="cube_joint"/>
+      <geom name="cube_geom" type="box" size="0.025 0.025 0.025" mass="0.08"
+            rgba="0.85 0.2 0.2 1" condim="4" friction="1.0 0.005 0.0001"/>
+    </body>
+
+    <!-- Lift-height marker (transparent, floats above cube init xy at target height) -->
+    <body name="goal_marker" pos="0.45 0.0 1.03">
+      <geom name="goal_geom" type="box" size="0.027 0.027 0.005"
+            material="goal_marker_mat" contype="0" conaffinity="0"/>
+    </body>
+
+    <!-- World-fixed cameras: positions/euler overridden at runtime from CameraConfig -->
+    <camera name="outside_left"  pos="-0.15 -0.65 0.90" euler="0 -30 0" fovy="65"/>
+    <camera name="outside_right" pos=" 0.85 -0.65 0.90" euler="0 -30 0" fovy="65"/>
+  </worldbody>
+
+  <keyframe>
+    <key name="home"
+      qpos="0 -0.5 0.8 0.4 0 0  0.45 0.0 0.83 1 0 0 0"
+      ctrl="0 -0.5 0.8 0.4 0 0"/>
+  </keyframe>
+</mujoco>

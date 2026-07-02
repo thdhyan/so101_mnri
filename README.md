@@ -16,6 +16,15 @@ conda activate so101
 | Joints | 6 | 12 (2×6) |
 | Cameras | 5 (wrist + 2 side + overhead + front) | 6 (2 wrist + 2 side + overhead + front) |
 
+Four fixed-task envs built on the same robot/world pattern:
+
+| | Path | Arms | Task |
+|---|---|---|---|
+| Pick-lift | `envs/mujoco/so101_single_arm_pick_lift/` | 1 | grasp cube, lift above threshold |
+| Pick-and-place | `envs/mujoco/so101_single_arm_pick_place/` | 1 | grasp cube, place on target disc |
+| Cylinder grasp | `envs/mujoco/so101_dual_arm_cylinder_grasp/` | 2 | grasp opposite ends of a free cylinder, lift together |
+| Cylinder reach | `envs/mujoco/so101_dual_arm_cylinder_reach/` | 2 | reach target points above a static cylinder's ends |
+
 Full details, camera lists, and observation/action spaces: **[ENVS.md](ENVS.md)**.
 
 ## Quick run
@@ -31,6 +40,7 @@ Headless sanity check (CI-safe, exits nonzero on failure):
 
 ```bash
 python scripts/verify_manual.py --env single --headless-check
+python scripts/verify_manual.py --env pick_lift --headless-check   # and pick_place, cyl_grasp, cyl_reach
 python verify_envs.py --env both
 ```
 
@@ -78,8 +88,12 @@ Meshes, MJCF kinematics, and URDFs are canonical under `robots/so101/`
 ```
 envs/
   mujoco/
-    so101_single_arm/   single-arm env (env.py, assets/scene.xml)
-    so101_dual_arm/     dual-arm env
+    so101_single_arm/              single-arm env (env.py, assets/scene.xml)
+    so101_dual_arm/                dual-arm env
+    so101_single_arm_pick_lift/    single-arm: grasp + lift cube
+    so101_single_arm_pick_place/   single-arm: grasp cube, place on target
+    so101_dual_arm_cylinder_grasp/ dual-arm: grasp + lift cylinder together
+    so101_dual_arm_cylinder_reach/ dual-arm: reach cylinder-end targets
   isaac/                (planned) Isaac Lab port
 robots/so101/            shared meshes, MJCF, URDF — single source of truth
 scripts/                 teleop, camera viewer, manual verification
