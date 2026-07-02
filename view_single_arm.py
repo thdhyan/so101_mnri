@@ -20,7 +20,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 
-from so101_single_arm_env.env import SO101SingleArmEnv, SingleArmEnvConfig, CameraConfig
+from envs.mujoco.so101_single_arm.env import SO101SingleArmEnv, SingleArmEnvConfig, CameraConfig
 
 # ── Edit camera positions here ───────────────────────────────────────────────
 # wrist: pos/euler in gripper body frame. euler=(0,0,0) looks toward jaw (-Z gripper).

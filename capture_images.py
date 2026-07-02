@@ -7,7 +7,7 @@ from PIL import Image
 out = Path('/home/thakk100/Projects/so101_mnri/images')
 out.mkdir(exist_ok=True)
 
-from so101_single_arm_env.env import SO101SingleArmEnv, SingleArmEnvConfig
+from envs.mujoco.so101_single_arm.env import SO101SingleArmEnv, SingleArmEnvConfig
 env = SO101SingleArmEnv(SingleArmEnvConfig())
 env.reset()
 import mujoco as mj
@@ -20,7 +20,7 @@ for cam in ["wrist", "outside_left", "outside_right"]:
     print(f"saved single_{cam}.png")
 env.close()
 
-from so101_dual_arm_env.env import SO101DualArmEnv, DualArmEnvConfig
+from envs.mujoco.so101_dual_arm.env import SO101DualArmEnv, DualArmEnvConfig
 env2 = SO101DualArmEnv(DualArmEnvConfig())
 env2.reset()
 mj.mj_forward(env2.model, env2.data)

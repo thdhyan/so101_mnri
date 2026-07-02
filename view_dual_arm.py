@@ -21,7 +21,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 
-from so101_dual_arm_env.env import SO101DualArmEnv, DualArmEnvConfig, CameraConfig
+from envs.mujoco.so101_dual_arm.env import SO101DualArmEnv, DualArmEnvConfig, CameraConfig
 
 # ── Edit camera positions here ───────────────────────────────────────────────
 cfg = DualArmEnvConfig(

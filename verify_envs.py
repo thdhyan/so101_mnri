@@ -39,7 +39,7 @@ def test_single_arm(interactive: bool = False, n_steps: int = 100,
     print("\n" + "="*60)
     print("  SINGLE ARM ENV")
     print("="*60)
-    from so101_single_arm_env.env import (
+    from envs.mujoco.so101_single_arm.env import (
         SO101SingleArmEnv, SingleArmEnvConfig, CameraConfig, GoalConfig
     )
 
@@ -101,7 +101,7 @@ def test_dual_arm(interactive: bool = False, n_steps: int = 100,
     print("\n" + "="*60)
     print("  DUAL ARM ENV")
     print("="*60)
-    from so101_dual_arm_env.env import (
+    from envs.mujoco.so101_dual_arm.env import (
         SO101DualArmEnv, DualArmEnvConfig, CameraConfig
     )
 
@@ -178,10 +178,10 @@ def test_make_env_api(env_name: str):
     """Test the EnvHub make_env API specifically."""
     print(f"\n  Testing make_env API for {env_name}...")
     if env_name == "single":
-        from so101_single_arm_env.env import make_env
+        from envs.mujoco.so101_single_arm.env import make_env
         vec_env = make_env(n_envs=1)
     else:
-        from so101_dual_arm_env.env import make_env
+        from envs.mujoco.so101_dual_arm.env import make_env
         vec_env = make_env(n_envs=1)
 
     obs, info = vec_env.reset()

@@ -3,9 +3,11 @@ SO-101 Single Arm MuJoCo Environment
 EnvHub-compatible: exposes make_env(n_envs, use_async_envs, cfg)
 
 Cameras:
-  - wrist       : attached to gripper body
+  - wrist         : attached to gripper body
   - outside_left  : world-fixed, configurable position
   - outside_right : world-fixed, configurable position
+  - overhead_cam  : world-fixed, top-down over table center
+  - front_cam     : world-fixed, front view at eye height
 
 Tasks:
   - "none"  : pure data collection, no object reward
@@ -88,6 +90,8 @@ class SingleArmEnvConfig:
     outside_cameras: list = field(default_factory=lambda: [
         CameraConfig("outside_left",  pos=(0.462, -0.110, 1.273), euler=(0.5,  3.5,  91.0), fov=65.0),
         CameraConfig("outside_right", pos=(0.382, -0.304, 1.066), euler=(65.0, 1.0,  -3.0), fov=65.0),
+        CameraConfig("overhead_cam",  pos=(0.35, 0.0, 1.35), euler=(0.0, 0.0, 90.0), fov=60.0),
+        CameraConfig("front_cam",     pos=(0.35, -0.95, 1.05), euler=(0.0, 55.0, 0.0), fov=60.0),
     ])
 
     task: str = "push"                   # "push" | "pull" | "none"

@@ -86,7 +86,7 @@ class CamTuner:
 
 def run_tuner(env_name: str):
     if env_name == "single":
-        from so101_single_arm_env.env import SO101SingleArmEnv, SingleArmEnvConfig
+        from envs.mujoco.so101_single_arm.env import SO101SingleArmEnv, SingleArmEnvConfig
         env = SO101SingleArmEnv(SingleArmEnvConfig())
         cam_names  = ["wrist", "outside_left", "outside_right"]
         tuners = [
@@ -98,7 +98,7 @@ def run_tuner(env_name: str):
                      init_pos=(0.90, -0.55, 1.05), init_euler=(-74.7, -44.0, -10.7)),
         ]
     else:
-        from so101_dual_arm_env.env import SO101DualArmEnv, DualArmEnvConfig
+        from envs.mujoco.so101_dual_arm.env import SO101DualArmEnv, DualArmEnvConfig
         env = SO101DualArmEnv(DualArmEnvConfig())
         cam_names = ["left_wrist", "right_wrist", "overhead_left", "overhead_right"]
         tuners = [
