@@ -1,0 +1,6 @@
+[submodule "third_party/mjlab"]
+	path = third_party/mjlab
+	url = https://github.com/thdhyan/mjlab.git
+[submodule "third_party/skrl"]
+	path = third_party/skrl
+	url = https://github.com/thdhyan/skrl.git
