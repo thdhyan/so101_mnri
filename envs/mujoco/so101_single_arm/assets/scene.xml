@@ -1,9 +1,9 @@
 <mujoco model="so101_single_arm_scene">
-  <compiler angle="radian" meshdir="meshes" autolimits="true"/>
+  <compiler angle="radian" meshdir="../../../../robots/so101/meshes" autolimits="true"/>
 
   <option timestep="0.002" gravity="0 0 -9.81"/>
 
-  <include file="so101_follower.xml"/>
+  <include file="../../../../robots/so101/so101_follower.xml"/>
 
   <statistic center="0.35 0 0.5" extent="1.2" meansize="0.05"/>
 
