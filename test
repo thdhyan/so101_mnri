@@ -1,0 +1,4 @@
+  python bi_arm_clean_toytable_teleop.py \
+      --left-port /dev/ttyACM0 \
+      --right-port /dev/ttyACM1 \
+      --fps 60
