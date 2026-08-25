@@ -1,8 +1,9 @@
 # Agent tasks & plans
 
-Open work for agents picking this repo up. Each task lists what to build,
-where it goes, and how to validate it before calling it done. Read
-`README.md` and `ENVS.md` first for the current state.
+Open work for agents picking this repo up. **Start at HANDOFF.md** (current
+state, verified commands, invariants) and `test.md` (failure archive) before
+working in the venv/Isaac/camera areas. `README.md` + `ENVS.md` + `MDP.md`
+cover the envs.
 
 ## Ground rules
 
@@ -12,88 +13,88 @@ where it goes, and how to validate it before calling it done. Read
   their own `scene.xml` location (see "MuJoCo path resolution note" in
   `robots/so101/README.md` — this is a real footgun, read it before editing
   any XML with `<include>`).
+- The Isaac USD (`envs/isaac/assets/`) is GENERATED from
+  `robots/so101/so101.urdf` — regenerate with
+  `python -m envs.isaac.convert_urdf`, never hand-edit.
 - Joint/actuator/site names are a stable contract other scripts depend on:
   `shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper`
   (optionally `left_`/`right_` prefixed), sites `gripperframe` /
   `left_gripperframe` / `right_gripperframe`. Don't rename without updating
-  every consumer (`env.py`, `scripts/*.py`).
+  every consumer (`env.py`, `scripts/*.py`, Isaac cfgs).
 - Discover cameras/joints dynamically (`model.ncam`, `model.joint(name)`,
   etc.) in new scripts rather than hardcoding lists — scenes gain cameras
   over time.
-- Validate with `/home/thakk100/miniconda3/envs/so101/bin/python` (conda env
-  `so101`), `MUJOCO_GL=egl` for headless rendering.
-- Before finishing any task: run `scripts/verify_manual.py --env single
-  --headless-check` and `--env dual --headless-check`, both must exit 0.
-  Same for the 4 task envs: `--env pick_lift`, `--env pick_place`,
-  `--env cyl_grasp`, `--env cyl_reach`.
+- Validate with the repo `.venv` (python 3.12): `source .venv/bin/activate`.
+  `MUJOCO_GL=egl` for headless MuJoCo rendering. Isaac needs
+  `OMNI_KIT_ACCEPT_EULA=YES` (in `.envrc`) and free RAM/GPU (see test.md —
+  silent deaths under resource pressure).
+- Before finishing MuJoCo-side tasks: `scripts/verify_manual.py
+  --headless-check` for every touched env, plus
+  `scripts/validate_actions.py`. Isaac-side: `python -m
+  envs.isaac.scripts.validate_actions`.
 
 ## Open tasks
 
-### 1. Isaac Lab port — `envs/isaac/`
+### 1. Full RL training runs (both backends)
 
-Currently an empty placeholder (`.gitkeep`). Port the single-arm and
-dual-arm envs to Isaac Lab, mirroring `envs/mujoco/*/env.py`'s observation
-space, action space, task logic (`push`/`pull`/`none`), and camera setup.
-Reuse `robots/so101/so101.urdf` / `so101_dual.urdf` as the USD-conversion
-source (Isaac Lab's URDF importer) rather than hand-authoring a new model.
+Smoke tests pass (3 iterations + checkpoint on isaaclab-skrl and
+mujoco-skrl); no real training has run. Suggested first target:
+`--backend isaaclab --task SO101-PickLift-Single-v0 --algo skrl --num-envs
+4096` (default 1500 iterations), then rsl_rl, then the dual-arm cylinder
+tasks. Tune actuator gains (stiffness 100 / damping 2.5 first guess) if the
+arm sags or oscillates.
 
-**Validate:** obs/action space shapes match the MuJoCo envs exactly (so
-downstream training code doesn't need per-backend branches); render at
-least one camera and confirm it's non-blank; reset/step run without error
-for both `push` and `none` tasks.
+### 2. Image-based RL (user requirement)
 
-### 2. mujoco-ar-viewer integration
+Wire CNN encoders (ResNet-style, CLIP/FiLM, or YOLO-detector features) into
+skrl/rsl_rl policies consuming camera obs. Isaac: `CameraCfg` sensors already
+render (`env.scene["wrist_cam"].data.output["rgb"]`); MuJoCo: `obs["images"]`.
+Keep the state-based path as the default/fallback.
 
-Wire [Improbable-AI/mujoco-ar-viewer](https://github.com/Improbable-AI/mujoco-ar-viewer)
-as a new driver for `scripts/teleop_gamepad_ik.py`'s `IKTeleop` class. The
-class already exposes `set_ee_target(pos, quat=None)` / `set_gripper(openness)`
-decoupled from the gamepad-reading loop — build an AR-viewer-based reader
-that calls those methods per frame instead of polling `pygame` joystick
-axes, likely as `scripts/teleop_ar_viewer.py` following the same structure
-as `teleop_gamepad_ik.py` (`build_ik()` helper, `--dry-run` headless mode).
+### 3. Isaac teleop via isaacteleop + lerobot example
 
-**Validate:** `--dry-run` mode runs headless (no AR device) with a scripted
-target trajectory, same pattern as the existing `--dry-run` flags; final
-EE-tracking error should be small (existing gamepad script achieves <0.1 cm
-on a circular trajectory — use that as a rough bar).
+`isaacteleop` 1.3.131 installed. The official XR→SO-101 example lives in
+lerobot SOURCE (`examples/isaac_teleop_to_so101/`): clone lerobot,
+`pip install -e ".[feetech,kinematics,dataset]"` (replaces pip lerobot),
+install `isaacteleop[cloudxr]`, accept the CloudXR EULA once
+(`python -m isaacteleop.cloudxr --accept-eula`). VR headset required for the
+XR path; the SO-101-leader path needs the C++ plugin built from IsaacTeleop
+source.
 
-### 3. Data collection / episode recording
+### 4. mjlab backend smoke test
 
-No script currently saves rollouts to disk (images + joint states + actions)
-in a training-ready format (e.g. LeRobot dataset format, given the `env.py`
-docstrings mention EnvHub compatibility). Add a recording wrapper around
-`teleop_gamepad_ik.py` / `teleop_leader_arm.py` that logs each control-loop
-tick's `obs`, `action`, `reward` to disk, keyed by episode.
+`--backend mjlab --task so101_pick_lift` (older plan, MJLAB_INTEGRATION.md)
+is wired but untested on this venv. Run a short job on a free GPU; fix the
+Runner cfg if the fork's API drifted (see test.md skrl section).
 
-**Validate:** run `--dry-run` teleop with recording enabled, confirm output
-files exist, load them back and check shapes/dtypes match `obs_space`.
+### 5. Sim-to-real: lerobot bridges
 
-### 4. Isaac / conda environment for `envs/isaac`
+Done: `scripts/teleop_leader_lerobot.py` (real leader → sim, optional
+--mirror-real to also drive the physical follower) and
+`scripts/teleop_gamepad_ik.py --real-follower-port` (gamepad IK → sim +
+real simultaneously). Untested on hardware — verify calibration flow
+(`lerobot-calibrate`) and deg/rad conventions with a real arm.
 
-Once task 1 needs it: check existing conda envs (`isaac`, `env_isaaclab`
-already exist per `conda env list`) for compatibility before creating a new
-one — ask the user which to use, same as was done for the MuJoCo `so101`
-env, don't assume.
+### 6. GR00T-WholeBodyControl / GEAR-SONIC (research references)
+
+Humanoid whole-body-control models (NVlabs/GR00T-WholeBodyControl,
+nvidia/GEAR-SONIC sonic_v1_1) — NOT directly applicable to 6-DoF SO-101
+arms. Keep as references for future embodiments; don't attempt integration
+without a matching robot.
+
+### 7. Docs polish
+
+Root README/ENVS.md updated for the rework but still MuJoCo-centric in
+places; per-env READMEs in envs/mujoco/*/ still show pre-reorg import paths
+in spots. Refresh opportunistically.
 
 ## Known rough edges (not blocking, worth fixing opportunistically)
 
-- `envs/mujoco/so101_single_arm/README.md` and `so101_dual_arm/README.md`
-  still show the old `so101_single_arm_env.env` / `so101_dual_arm_env.env`
-  import path from before the `envs/mujoco/` reorg — update to
-  `envs.mujoco.so101_single_arm.env` when next touching those files.
-- Root-level `view_single_arm.py` / `view_dual_arm.py` (matplotlib-based,
-  hardcoded camera lists) are now superseded by `scripts/verify_manual.py`
-  and `scripts/view_cameras.py` (dynamic camera discovery, OpenCV). Not
-  removed since they may still be in someone's muscle memory — fine to
-  delete once confirmed unused.
+- Root-level `view_single_arm.py` / `view_dual_arm.py` (matplotlib,
+  hardcoded cameras) superseded by `scripts/view_cameras.py` — delete once
+  confirmed unused.
 - `bi_arm_clean_toytable_teleop.py`, `capture_images.py`, `tune_cameras.py`,
-  `test` at repo root predate this reorg and haven't been audited against
-  the new `robots/so101/` layout — check they still import correctly before
-  relying on them. `bi_arm_clean_toytable_teleop.py` also imports from
-  `lerobot`, an external dependency not in this repo's requirements.
-- `mujoco.mju_mat2Quat` requires float64 in/out buffers on the installed
-  mujoco version — `envs/mujoco/so101_single_arm_pick_lift/env.py` and
-  `so101_single_arm_pick_place/env.py`'s `_get_obs()` compute a float64
-  scratch array then cast to float32 for `tcp_quat`. Follow that pattern if
-  you add similar mat→quat conversions elsewhere; a bare float32 buffer
-  raises `TypeError` at runtime.
+  `test` at repo root predate the reorg — audit before relying on them.
+- `mujoco.mju_mat2Quat` requires float64 buffers on the installed mujoco —
+  follow the existing pattern in pick_lift/pick_place env.py if adding
+  mat→quat conversions.

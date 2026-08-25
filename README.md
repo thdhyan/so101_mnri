@@ -1,11 +1,12 @@
 # SO-101 MNRI
 
-MuJoCo simulation environments for the SO-101 robot arm (single-arm and
-dual-arm), plus teleop and data-collection tooling. Conda env: `so101`.
+MuJoCo **and** Isaac Sim environments for the SO-101 robot arm (single-arm
+and dual-arm), with a backend-agnostic RL training layer (skrl / rsl_rl),
+plus teleop and data-collection tooling.
 
-```bash
-conda activate so101
-```
+Python 3.12 uv venv at repo root (`.venv`) — `source .venv/bin/activate`
+(direnv users: `.envrc` also sets the Isaac EULA + uv cache vars). Full
+onboarding: **[HANDOFF.md](HANDOFF.md)**. Failure archive: **[test.md](test.md)**.
 
 ## Environments
 
@@ -26,6 +27,41 @@ Four fixed-task envs built on the same robot/world pattern:
 | Cylinder reach | `envs/mujoco/so101_dual_arm_cylinder_reach/` | 2 | reach target points above a static cylinder's ends |
 
 Full details, camera lists, and observation/action spaces: **[ENVS.md](ENVS.md)**.
+Per-task MDP specs (reward formulas, obs/action spaces, termination, DR,
+training params, camera screenshots): **[MDP.md](MDP.md)** index.
+
+## Isaac Lab tasks (Isaac Sim 6.0.1)
+
+Four registered gym tasks (single- and dual-arm), defined in `envs/isaac/`:
+
+| Task ID | Arms | Task |
+|---|---|---|
+| `SO101-PickLift-Single-v0` | 1 | grasp cube, lift above threshold |
+| `SO101-PickPlace-Single-v0` | 1 | grasp cube, place on target |
+| `SO101-CylGrasp-Dual-v0` | 2 | grasp opposite ends of a thin cylinder, lift together |
+| `SO101-CylReach-Dual-v0` | 2 | reach points above a fixed cylinder's ends |
+
+Dual-arm tasks mirror the real rig: follower bases 18 in (0.4572 m) apart in
+Y, Z and X axes parallel. Cameras (wrist + global overhead/front) are
+configurable; screenshots in each task's `MDP.md`.
+
+```bash
+python -m envs.isaac.validate 2>/dev/null || python -m envs.isaac.scripts.validate_actions  # zero+random action check
+python -m envs.isaac.scripts.render_cameras    # regenerate task screenshots
+```
+
+## RL training (skrl / rsl_rl — backend-agnostic)
+
+The algorithm layer is independent of the sim backend:
+
+```bash
+python -m rl.train --backend isaaclab --task SO101-PickLift-Single-v0 --algo skrl   --num-envs 4096
+python -m rl.train --backend isaaclab --task SO101-CylGrasp-Dual-v0  --algo rsl_rl --num-envs 2048
+python -m rl.train --backend mujoco   --task pick_lift --algo skrl --device cpu
+python -m rl.play   --backend mujoco  --task pick_lift --checkpoint <agent.pt>
+```
+
+Details: **[rl/](rl/)** (`rl/README.md`), shared PPO configs in `rl/agents/`.
 
 ## Quick run
 
@@ -87,17 +123,14 @@ Meshes, MJCF kinematics, and URDFs are canonical under `robots/so101/`
 
 ```
 envs/
-  mujoco/
-    so101_single_arm/              single-arm env (env.py, assets/scene.xml)
-    so101_dual_arm/                dual-arm env
-    so101_single_arm_pick_lift/    single-arm: grasp + lift cube
-    so101_single_arm_pick_place/   single-arm: grasp cube, place on target
-    so101_dual_arm_cylinder_grasp/ dual-arm: grasp + lift cylinder together
-    so101_dual_arm_cylinder_reach/ dual-arm: reach cylinder-end targets
-  isaac/                (planned) Isaac Lab port
+  mujoco/               6 gymnasium envs (see ENVS.md)
+  isaac/                Isaac Lab port: 4 registered RL tasks, USD asset, scripts
 robots/so101/            shared meshes, MJCF, URDF — single source of truth
-scripts/                 teleop, camera viewer, manual verification
-images/                  screenshots used in this README / ENVS.md
+rl/                      backend-agnostic training (skrl/rsl_rl): train.py, play.py, agents/
+scripts/                 teleop, camera viewer, manual verification, validation
+third_party/             git submodules: mjlab, skrl (user forks)
+HANDOFF.md               start here when picking up the repo
+test.md                  failure archive from the Aug 2026 rework
 ```
 
 ## Working with other agents

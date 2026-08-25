@@ -6,6 +6,16 @@ Six MuJoCo `gymnasium.Env` implementations built on the SO-101 follower arm
 (pick-lift, pick-and-place, cylinder-grasp, cylinder-reach). All share robot
 definitions from `robots/so101/` (see that dir's README for provenance).
 
+Per-task MDP specs (rewards, obs/action spaces, termination, training) live
+in each env's `MDP.md` — index at root [`MDP.md`](MDP.md). Isaac Lab ports
+of the four task envs: [`envs/isaac/`](isaac/README.md).
+
+All envs expose a full camera suite: per-arm wrist cams + global
+`overhead_cam` (top-down) and `front_cam` (workspace view). Every camera's
+pos/euler/fov is runtime-customizable via `CameraConfig` entries in each
+`env.py`. Dual-arm geometry: follower bases 18 in (0.4572 m) apart in Y,
+Z/X axes parallel (matches the real rig).
+
 ## Single arm — `envs/mujoco/so101_single_arm/`
 
 One SO-101 arm at a table with a cube (task object) and a goal marker.
