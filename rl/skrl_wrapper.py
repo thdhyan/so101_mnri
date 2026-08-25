@@ -64,7 +64,16 @@ class SkrlVecEnvWrapper(Wrapper):
     self, actions: torch.Tensor
   ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict[str, Any]]:
     obs_dict, reward, terminated, truncated, extras = self._env.step(actions)
-    return obs_dict[self._obs_group], reward, terminated, truncated, extras
+    # skrl's memory slots are (num_envs, 1) for scalars — match the shape
+    # convention of skrl's own isaaclab wrapper (1-D tensors would broadcast
+    # to (N, N) in PPO's time-limit bootstrapping).
+    return (
+      obs_dict[self._obs_group],
+      reward.view(-1, 1),
+      terminated.view(-1, 1),
+      truncated.view(-1, 1),
+      extras,
+    )
 
   def state(self) -> torch.Tensor | None:
     return None

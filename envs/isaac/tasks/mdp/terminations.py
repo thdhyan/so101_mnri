@@ -95,6 +95,44 @@ def cyl_grasp_success(
     return lifted & grasped_a & grasped_b
 
 
+class cyl_reach_success_single(ManagerTermBase):
+    """One gripper within 1 cm of the point ``z_offset`` above one cylinder
+    end, held for ``hold_steps`` consecutive steps (single-arm reach task).
+
+    Single-arm sibling of :class:`cyl_reach_success` — same hold-counter
+    logic, one arm/end pair instead of two.
+    """
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        self._count = None
+
+    def reset(self, env_ids: torch.Tensor | None = None):
+        if self._count is not None and env_ids is not None:
+            self._count[env_ids] = 0
+
+    def __call__(
+        self,
+        env: ManagerBasedRLEnv,
+        z_offset: float,
+        end: str = "b",
+        hold_steps: int = 10,
+        pos_tol: float = 0.01,
+        half_length: float = 0.075,
+        object_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+        ee_frame_cfg: SceneEntityCfg = SceneEntityCfg("ee_frame"),
+    ) -> torch.Tensor:
+        if self._count is None or self._count.shape[0] != env.num_envs:
+            self._count = torch.zeros(env.num_envs, device=env.device)
+        end_a, end_b = cyl_end_positions_w(env, object_cfg, half_length)
+        off = torch.tensor([0.0, 0.0, z_offset], device=env.device)
+        target = (end_a if end == "a" else end_b) + off
+        d = torch.linalg.norm(target - _ee_pos_w(env, ee_frame_cfg), dim=1)
+        in_band = d < pos_tol
+        self._count = torch.where(in_band, self._count + 1, torch.zeros_like(self._count))
+        return self._count >= hold_steps
+
+
 class cyl_reach_success(ManagerTermBase):
     """Both grippers within 1 cm of their targets, held for ``hold_steps``.
 

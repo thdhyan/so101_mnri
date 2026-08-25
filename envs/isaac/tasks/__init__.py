@@ -5,6 +5,8 @@ Registered tasks (single-arm vs dual-arm is part of the task id):
     Single-arm (one follower):
         SO101-PickLift-Single-v0        grasp cube, lift above threshold
         SO101-PickPlace-Single-v0       grasp cube, place on target disc
+        SO101-CylReach-Single-v0        reach a point above a fixed
+                                        cylinder's end, hold
     Dual-arm (two followers, bases 18 in apart, parallel Z/X axes):
         SO101-CylGrasp-Dual-v0          grasp opposite ends of a thin
                                         cylinder, lift together
@@ -20,6 +22,7 @@ backend-independent):
 from envs.isaac.tasks import (  # noqa: F401
     cylinder_grasp,
     cylinder_reach,
+    cylinder_reach_single,
     pick_lift,
     pick_place,
 )

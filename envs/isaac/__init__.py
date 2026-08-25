@@ -9,6 +9,8 @@ rsl_rl both wrap the same envs.
 Registered tasks:
     SO101-PickLift-Single-v0     single arm: grasp cube, lift above threshold
     SO101-PickPlace-Single-v0    single arm: grasp cube, place on target
+    SO101-CylReach-Single-v0     single arm: reach a point above a fixed
+                                 cylinder's end, hold
     SO101-CylGrasp-Dual-v0       dual arm: grasp opposite ends of a thin
                                  cylinder, lift together
     SO101-CylReach-Dual-v0       dual arm: reach target points above a static

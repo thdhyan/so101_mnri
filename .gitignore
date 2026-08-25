@@ -19,3 +19,12 @@ images/*
 !images/cyl_grasp_cameras.png
 !images/cyl_reach_overview.png
 !images/cyl_reach_cameras.png
+!images/push_t_overview.png
+!images/push_t_cameras.png
+!images/cube_push_ramp_overview.png
+!images/cube_push_ramp_cameras.png
+!images/cube_push_bridge_overview.png
+!images/cube_push_bridge_cameras.png
+
+# container secrets
+docker/.env

@@ -23,6 +23,9 @@ Four fixed-task envs built on the same robot/world pattern:
 |---|---|---|---|
 | Pick-lift | `envs/mujoco/so101_single_arm_pick_lift/` | 1 | grasp cube, lift above threshold |
 | Pick-and-place | `envs/mujoco/so101_single_arm_pick_place/` | 1 | grasp cube, place on target disc |
+| Push-T | `envs/mujoco/so101_single_arm_push_t/` | 1 | push a T-shaped block onto a target outline |
+| Cube push (ramp) | `envs/mujoco/so101_single_arm_cube_push_ramp/` | 1 | push a cube along a ramp to a goal patch |
+| Cube push (bridge) | `envs/mujoco/so101_single_arm_cube_push_bridge/` | 1 | push a cube across a narrow bridge to a goal patch |
 | Cylinder grasp | `envs/mujoco/so101_dual_arm_cylinder_grasp/` | 2 | grasp opposite ends of a free cylinder, lift together |
 | Cylinder reach | `envs/mujoco/so101_dual_arm_cylinder_reach/` | 2 | reach target points above a static cylinder's ends |
 
@@ -32,12 +35,13 @@ training params, camera screenshots): **[MDP.md](MDP.md)** index.
 
 ## Isaac Lab tasks (Isaac Sim 6.0.1)
 
-Four registered gym tasks (single- and dual-arm), defined in `envs/isaac/`:
+Five registered gym tasks (single- and dual-arm), defined in `envs/isaac/`:
 
 | Task ID | Arms | Task |
 |---|---|---|
 | `SO101-PickLift-Single-v0` | 1 | grasp cube, lift above threshold |
 | `SO101-PickPlace-Single-v0` | 1 | grasp cube, place on target |
+| `SO101-CylReach-Single-v0` | 1 | reach a point above a fixed cylinder's end, hold |
 | `SO101-CylGrasp-Dual-v0` | 2 | grasp opposite ends of a thin cylinder, lift together |
 | `SO101-CylReach-Dual-v0` | 2 | reach points above a fixed cylinder's ends |
 
@@ -60,6 +64,11 @@ python -m rl.train --backend isaaclab --task SO101-CylGrasp-Dual-v0  --algo rsl_
 python -m rl.train --backend mujoco   --task pick_lift --algo skrl --device cpu
 python -m rl.play   --backend mujoco  --task pick_lift --checkpoint <agent.pt>
 ```
+
+All backends log to TensorBoard (`rl/runs/...`) **and** Weights & Biases by
+default (`--no-wandb` to disable; `--wandb-entity` / `$WANDB_ENTITY` to pick
+a team). Credentials are read from `~/.netrc` (`machine api.wandb.ai`) —
+run `wandb login` once if not already authenticated.
 
 Details: **[rl/](rl/)** (`rl/README.md`), shared PPO configs in `rl/agents/`.
 
@@ -124,7 +133,7 @@ Meshes, MJCF kinematics, and URDFs are canonical under `robots/so101/`
 ```
 envs/
   mujoco/               6 gymnasium envs (see ENVS.md)
-  isaac/                Isaac Lab port: 4 registered RL tasks, USD asset, scripts
+  isaac/                Isaac Lab port: 5 registered RL tasks, USD asset, scripts
 robots/so101/            shared meshes, MJCF, URDF — single source of truth
 rl/                      backend-agnostic training (skrl/rsl_rl): train.py, play.py, agents/
 scripts/                 teleop, camera viewer, manual verification, validation

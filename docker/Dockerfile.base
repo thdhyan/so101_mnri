@@ -1,0 +1,88 @@
+# =============================================================================
+# STAGE 1 — SO-101 training base image (PARITY with the local .venv stack)
+#
+# Reproduces the validated local training environment exactly:
+#   python 3.12 + torch 2.11.0+cu128 + isaacsim 6.0.1.0 + isaaclab 3.0.0b2.post1
+#   + rsl-rl-lib 5.4.0 + mujoco 3.10.0/mujoco-warp 3.10.0.1  (all pip)
+#
+# WHY NOT nvcr.io/nvidia/isaac-lab:3.0.0-beta2-post1? Despite the tag it ships
+# a different Isaac Lab minor, and this repo's task cfgs target the 3.0.0b2
+# beta API (see test.md). The pip parity stack below matches the local venv
+# that all validation runs used.
+#
+# The CUSTOM skrl (thdhyan/skrl fork, dataclass API) is NOT baked here — it is
+# installed at RUNTIME from the repo's third_party/skrl submodule by the
+# entrypoint, so one image serves any fork revision.
+#
+# Build (~25 GB of wheels; needs ~45 GB disk — check `df -h` first):
+#   docker build -f docker/Dockerfile.base -t thdhyan/so101-isaac-base:3.0.0b2 .
+# Push:
+#   docker push thdhyan/so101-isaac-base:3.0.0b2
+# =============================================================================
+FROM nvcr.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04
+
+ARG RSL_RL_VERSION=5.4.0
+ARG ISAACSIM_VERSION=6.0.1.0
+ARG ISAACLAB_PIP_VERSION=3.0.0b2.post1
+ARG TORCH_VERSION=2.11.0
+ARG MUJOCO_VERSION=3.10.0
+ARG MUJOCO_WARP_VERSION=3.10.0.1
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Etc/UTC \
+    OMNI_KIT_ACCEPT_EULA=YES \
+    ACCEPT_EULA=Y \
+    PYTHONUNBUFFERED=1 \
+    PIP_BREAK_SYSTEM_PACKAGES=1
+
+# ---------- system deps (Kit headless runtime libs included) ----------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git git-lfs curl wget ca-certificates build-essential \
+        python3.12 python3.12-dev python3-pip python3.12-venv \
+        tmux htop nano less \
+        libglvnd0 libgl1 libglx0 libegl1 libgles2 \
+        libx11-6 libx11-xcb1 libxcb1 libxext6 libxi6 libxrender1 libxxf86vm1 \
+        libvulkan1 vulkan-tools mesa-utils \
+        libusb-1.0-0 libudev1 libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
+    && git lfs install
+
+# ---------- python stack: torch -> isaacsim -> isaaclab (order matters) ----------
+RUN python3 -m pip install --no-cache-dir "torch==${TORCH_VERSION}" \
+        --index-url https://download.pytorch.org/whl/cu128
+RUN python3 -m pip install --no-cache-dir \
+        "isaacsim[all,extscache]==${ISAACSIM_VERSION}" \
+        --extra-index-url https://pypi.nvidia.com
+RUN python3 -m pip install --no-cache-dir \
+        "isaaclab==${ISAACLAB_PIP_VERSION}" \
+        --extra-index-url https://pypi.nvidia.com
+RUN python3 -m pip install --no-cache-dir \
+        "rsl-rl-lib==${RSL_RL_VERSION}" wandb huggingface_hub
+# MuJoCo backend (also used by the mjlab path) — warp pinned to the last
+# version that doesn't break mjlab indexing (see repo test.md / mjlab#1093)
+RUN python3 -m pip install --no-cache-dir \
+        "mujoco==${MUJOCO_VERSION}" "mujoco-warp==${MUJOCO_WARP_VERSION}"
+
+# ---------- verify the stack imports (fails the build loudly on drift) ----------
+RUN python3 -c "import importlib.metadata as md, torch, isaaclab; \
+    assert md.version('isaacsim').startswith('6.0.1'), md.version('isaacsim'); \
+    assert md.version('isaaclab').startswith('3.0.0b2'), md.version('isaaclab'); \
+    assert md.version('rsl-rl-lib') == '${RSL_RL_VERSION}', md.version('rsl-rl-lib'); \
+    import mujoco, mujoco_warp; \
+    print('base stack OK: isaaclab', md.version('isaaclab'), \
+          '| isaacsim', md.version('isaacsim'), \
+          '| torch', torch.__version__, \
+          '| rsl_rl', md.version('rsl-rl-lib'), \
+          '| mujoco', md.version('mujoco'))"
+
+# python resolution marker for the entrypoint (plain python3 IS the isaac env)
+RUN echo "python3" > /etc/so101_python
+
+COPY docker/entrypoint.sh /usr/local/bin/so101-entrypoint.sh
+RUN chmod +x /usr/local/bin/so101-entrypoint.sh
+
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/so101-entrypoint.sh"]
+CMD ["--backend", "isaaclab", "--task", "SO101-PickLift-Single-v0", "--algo", "skrl", "--num-envs", "4096"]

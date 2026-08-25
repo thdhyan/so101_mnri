@@ -15,6 +15,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 TASKS = {
     "SO101-PickLift-Single-v0": ("pick_lift", "PickLiftEnvCfg", 6),
     "SO101-PickPlace-Single-v0": ("pick_place", "PickPlaceEnvCfg", 6),
+    "SO101-CylReach-Single-v0": ("cylinder_reach_single", "CylReachSingleEnvCfg", 6),
     "SO101-CylGrasp-Dual-v0": ("cylinder_grasp", "CylGraspEnvCfg", 12),
     "SO101-CylReach-Dual-v0": ("cylinder_reach", "CylReachEnvCfg", 12),
 }

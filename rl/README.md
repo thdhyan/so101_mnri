@@ -8,10 +8,11 @@ interchangeable simulation backends. Shared PPO hyperparameters live in
 
 ```bash
 # Isaac Lab (Isaac Sim 6.0.1) — GPU required
-python -m rl.train --backend isaaclab --task SO101-PickLift-Single-v0  --algo skrl   --num-envs 4096
-python -m rl.train --backend isaaclab --task SO101-PickPlace-Single-v0 --algo rsl_rl --num-envs 4096
-python -m rl.train --backend isaaclab --task SO101-CylGrasp-Dual-v0    --algo skrl   --num-envs 2048
-python -m rl.train --backend isaaclab --task SO101-CylReach-Dual-v0    --algo rsl_rl --num-envs 2048
+python -m rl.train --backend isaaclab --task SO101-PickLift-Single-v0   --algo skrl   --num-envs 4096
+python -m rl.train --backend isaaclab --task SO101-PickPlace-Single-v0  --algo rsl_rl --num-envs 4096
+python -m rl.train --backend isaaclab --task SO101-CylReach-Single-v0   --algo skrl   --num-envs 4096
+python -m rl.train --backend isaaclab --task SO101-CylGrasp-Dual-v0     --algo skrl   --num-envs 2048
+python -m rl.train --backend isaaclab --task SO101-CylReach-Dual-v0     --algo rsl_rl --num-envs 2048
 
 # mjlab (MuJoCo Warp GPU batching) — pick-lift only (older plan, MJLAB_INTEGRATION.md)
 python -m rl.train --backend mjlab --task so101_pick_lift --algo skrl --num-envs 256
@@ -21,7 +22,8 @@ python -m rl.train --backend mujoco --task pick_lift --algo skrl --max-iteration
 ```
 
 Flags: `--num-envs`, `--max-iterations`, `--seed`, `--device`,
-`--wandb/--no-wandb` (project `so101-rl`), `--log-dir` (default `rl/runs`).
+`--wandb/--no-wandb`, `--wandb-project`, `--wandb-entity` / `$WANDB_ENTITY`,
+`--log-dir` (default `rl/runs`).
 
 ## Play (checkpoint playback, skrl agents)
 
@@ -44,5 +46,8 @@ entropy 0 · grad-norm clip 1.0 · checkpoints every 100 iterations.
   (`envs/isaac/scripts/render_cameras.py`).
 - The skrl fork (third_party/skrl) uses the new dataclass API — see test.md
   before writing custom models.
-- Logs: TensorBoard under `rl/runs/<backend>/<task>_<algo>/<stamp>/`;
-  WandB when `--wandb` (default on).
+- Logs: TensorBoard under `rl/runs/<backend>/<task>_<algo>/<stamp>/`, plus
+  WandB by default (`--no-wandb` to disable). Credentials come from
+  `~/.netrc` (`machine api.wandb.ai`); metrics are written directly at each
+  `write_interval` (the skrl fork's TB-sync path is disabled — it misses
+  short runs due to SummaryWriter buffering).

@@ -13,6 +13,7 @@ with the fix for each. Read this before debugging the same areas.
 | `mjlab` was missing from the old venv entirely | editable install was lost in the conda→uv migration | `uv pip install -e third_party/mjlab` into the new venv |
 | mjlab install upgraded `warp-lang` 1.13→1.16 and `rsl-rl-lib` 5.0.1→5.4.0 | mjlab's deps | Harmless: isaacsim bundles its own warp; rsl-rl 5.4 works with isaaclab 3.0.0b2 |
 | lerobot downgraded numpy 2.3.1→2.2.6 | lerobot pin | Fine: mjlab needs numpy<2.5 |
+| mjlab env reset died: CUDA `vectorized_gather_kernel` device-side assert in `reset_joints_by_offset` (num_envs>1); `EntityData.soft_joint_pos_limits` etc. came back `(1, 6, 2)` instead of `(num_envs, 6, 2)` | mujoco-warp **3.10.0.2+** changed tensor indexing, breaking mjlab (upstream issue mjocolab/mjlab#1093); fork is at upstream main, so no sync helps | `uv pip install "mujoco-warp==3.10.0.1"` (satisfies mjlab's own `~=3.10.0` pin). Re-check the pin after future mjlab/warp upgrades |
 
 ## 2. Robot / URDF
 
@@ -37,6 +38,8 @@ with the fix for each. Read this before debugging the same areas.
 | Left wrist cam misaimed while right worked | Left quat from offline look-at calibration didn't survive whatever transform the offset path applies | Y-mirror conjugate of the verified right quat: `(w,x,y,z) → (w,-x,y,-z)` — scene is mirror-symmetric |
 | Silent death (exit 0, log stops after "SimulationContext cleared") during env creation/reset — RECURRING | ~90% resource starvation (RAM/GPU shared with other sim jobs; 8 GB GPU, 15 GB RAM). ~10%: scene has camera sensors but AppLauncher ran with `enable_cameras=False` | Check `nvidia-smi` + `free -g`, free resources, retry; ALWAYS `enable_cameras=True` when scenes have cameras (train.py/play.py/validate do) |
 | `HydraEngine::render failure` + silent death mid-training | RTX renders cameras every `render_interval` steps headless; flaky under memory pressure | Training strips camera sensors from the cfg (state-based RL); renders only via `scripts/render_cameras.py` |
+| mjlab training crashed at first PPO update: `output with shape [64, 1] doesn't match the broadcast shape [64, 64]` | `rl/skrl_wrapper.py` returned 1-D reward/terminated/truncated; skrl memory slots are `(N, 1)`, so PPO's time-limit bootstrapping (`next_values (N,1) * truncated (N,)`) broadcast to `(N, N)` | Wrapper now `.view(-1, 1)`s the three scalars, matching skrl's own isaaclab wrapper convention |
+| `import lerobot` fails in the main venv: `huggingface-hub>=0.34.0,<1.0 is required ... found 1.28.0` | something (isaacsim dep chain) upgraded huggingface-hub past lerobot 0.6.1's `<1.0` pin | VLA training uses dedicated venvs (`.venv-vla-lerobot`, `.venv-vla-groot`) — see vla/README.md; don't "fix" by downgrading hf-hub in the main venv (isaacsim may need it) |
 | `A camera was spawned without --enable_cameras` | Scene contains CameraCfg sensors | Launch with `enable_cameras=True` |
 
 ## 4. skrl fork (third_party/skrl) — NEW API, old examples don't work

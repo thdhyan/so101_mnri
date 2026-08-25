@@ -13,7 +13,7 @@ MuJoCo **and** Isaac Sim simulation environments for the SO-101 arm
 
 ```
 envs/mujoco/          6 gymnasium envs (2 data-collection + 4 RL tasks)
-envs/isaac/           Isaac Lab port: 4 registered RL tasks + USD asset
+envs/isaac/           Isaac Lab port: 5 registered RL tasks + USD asset
   assets/so101/       USD converted from robots/so101/so101.urdf (DO NOT hand-edit)
   tasks/<task>/       env_cfg.py (scene+MDP), MDP.md (spec + screenshots), images/
   scripts/            render_cameras.py, validate_actions.py
@@ -25,6 +25,11 @@ rl/                   backend-agnostic trainers
   tasks/so101_pick_lift/   mjlab task (older plan, still functional path)
 robots/so101/         canonical robot: meshes, MJCF, URDF (single source of truth)
 scripts/              teleop (gamepad IK, leader-arm), camera viewers, validation
+docker/               containerized training: parity Dockerfile.base (isaacsim
+                      6.0.1 + isaaclab 3.0.0b2 + rsl-rl 5.4), runtime-clone
+                      entrypoint (installs third_party/skrl), Apptainer .def
+                      + cluster run commands — see docker/README.md
+vla/                  VLA finetuning harness (SmolVLA / GR00T / pi0) — see vla/README.md
 third_party/          git submodules: mjlab (user fork), skrl (user fork)
 ```
 
@@ -35,7 +40,8 @@ third_party/          git submodules: mjlab (user fork), skrl (user fork)
   `.envrc` also sets `OMNI_KIT_ACCEPT_EULA=YES` and `UV_CACHE_DIR=/Storage/uvcache`).
 - Installed: `isaacsim==6.0.1.0` (pip, needs `--extra-index-url
   https://pypi.nvidia.com`), `isaaclab==3.0.0b2.post1` (same extra index),
-  torch 2.11.0+cu128, mujoco 3.10.0 (+mujoco-warp), mjlab 1.5.0 (editable,
+  torch 2.11.0+cu128, mujoco 3.10.0 (+mujoco-warp **==3.10.0.1** — newer warp
+  breaks mjlab indexing, see test.md), mjlab 1.5.0 (editable,
   submodule), skrl 2.1.0 (editable, user fork — NOTE: new dataclass API,
   see test.md), rsl-rl-lib 5.4.0, lerobot 0.6.1 `[feetech]` (real SO-101
   control), isaacteleop 1.3.131 `[retargeters-lite]`, pygame/opencv/etc.
@@ -53,7 +59,7 @@ MUJOCO_GL=egl python scripts/verify_manual.py --env single --headless-check  # a
 MUJOCO_GL=egl python scripts/validate_actions.py          # zero+random actions, all 6 envs
 
 # Isaac Lab tasks: validation + renders
-python -m envs.isaac.scripts.validate_actions             # zero+random, all 4 tasks
+python -m envs.isaac.scripts.validate_actions             # zero+random, all 5 tasks
 python -m envs.isaac.scripts.render_cameras               # screenshots -> tasks/*/images/
 
 # Training (GPU required for isaaclab/mjlab backends)
@@ -69,6 +75,7 @@ python -m rl.play --backend mujoco --task pick_lift --checkpoint <path/to/agent.
 |---|---|---|
 | `SO101-PickLift-Single-v0` | 1 | so101_single_arm_pick_lift |
 | `SO101-PickPlace-Single-v0` | 1 | so101_single_arm_pick_place |
+| `SO101-CylReach-Single-v0` | 1 | — (single-arm variant of cyl_reach, added Aug 2026) |
 | `SO101-CylGrasp-Dual-v0` | 2 | so101_dual_arm_cylinder_grasp |
 | `SO101-CylReach-Dual-v0` | 2 | so101_dual_arm_cylinder_reach |
 

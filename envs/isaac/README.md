@@ -7,6 +7,7 @@ Isaac Lab 3.0.0b2 tasks for the SO-101 arm, mirroring the MuJoCo envs in
 |---|---|---|
 | `SO101-PickLift-Single-v0` | 1 | `so101_single_arm_pick_lift` |
 | `SO101-PickPlace-Single-v0` | 1 | `so101_single_arm_pick_place` |
+| `SO101-CylReach-Single-v0` | 1 | — (single-arm variant of cyl_reach) |
 | `SO101-CylGrasp-Dual-v0` | 2 | `so101_dual_arm_cylinder_grasp` |
 | `SO101-CylReach-Dual-v0` | 2 | `so101_dual_arm_cylinder_reach` |
 

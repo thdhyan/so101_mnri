@@ -17,8 +17,10 @@ Notes:
     - rsl_rl requires a vectorized env (Isaac Lab / mjlab backends); it is
       not available for the single-instance MuJoCo gymnasium envs.
     - Isaac Lab and mjlab need a GPU. The MuJoCo backend runs anywhere.
-    - Logging: TensorBoard always (rl/runs/<backend>/...); WandB on the skrl
-      paths when --wandb (default on; --no-wandb for smoke tests).
+    - Logging: TensorBoard always (rl/runs/<backend>/...) plus WandB by
+      default on ALL paths (--no-wandb to disable). Credentials come from
+      ~/.netrc (machine api.wandb.ai); set --wandb-entity or $WANDB_ENTITY
+      to override the target team/entity.
 """
 
 from __future__ import annotations
@@ -40,6 +42,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ISAACLAB_TASKS = [
     "SO101-PickLift-Single-v0",
     "SO101-PickPlace-Single-v0",
+    "SO101-CylReach-Single-v0",
     "SO101-CylGrasp-Dual-v0",
     "SO101-CylReach-Dual-v0",
 ]
@@ -53,6 +56,9 @@ MUJOCO_TASKS = {
     "pick_place": "envs.mujoco.so101_single_arm_pick_place.env:make_env",
     "cyl_grasp": "envs.mujoco.so101_dual_arm_cylinder_grasp.env:make_env",
     "cyl_reach": "envs.mujoco.so101_dual_arm_cylinder_reach.env:make_env",
+    "push_t": "envs.mujoco.so101_single_arm_push_t.env:make_env",
+    "cube_push_ramp": "envs.mujoco.so101_single_arm_cube_push_ramp.env:make_env",
+    "cube_push_bridge": "envs.mujoco.so101_single_arm_cube_push_bridge.env:make_env",
 }
 
 
@@ -69,6 +75,11 @@ def parse_args(argv=None):
     p.add_argument("--wandb", dest="wandb", action="store_true", default=True)
     p.add_argument("--no-wandb", dest="wandb", action="store_false")
     p.add_argument("--wandb-project", default="so101-rl")
+    p.add_argument(
+        "--wandb-entity",
+        default=os.environ.get("WANDB_ENTITY"),
+        help="WandB entity/team (default: your account default; falls back to $WANDB_ENTITY)",
+    )
     p.add_argument("--log-dir", default="rl/runs")
     args = p.parse_args(argv)
 
@@ -211,11 +222,18 @@ def build_skrl_ppo(wrapped_env, args, log_dir: Path, device: str):
     )
     if args.wandb:
         experiment.wandb = True
-        experiment.wandb_kwargs = {
+        wandb_kwargs = {
             "project": args.wandb_project,
-            "name": f"{args.task}_skrl",
+            "name": f"{args.task}_{args.algo}",
             "dir": str(log_dir),
+            "tags": [args.backend, args.algo, args.task],
+            # metrics are mirrored to wandb directly (below); the TB-sync path
+            # misses short runs because torch's SummaryWriter buffers ~120 s
+            "sync_tensorboard": False,
         }
+        if args.wandb_entity:
+            wandb_kwargs["entity"] = args.wandb_entity
+        experiment.wandb_kwargs = wandb_kwargs
 
     cfg = PPO_CFG(
         rollouts=24,
@@ -239,7 +257,7 @@ def build_skrl_ppo(wrapped_env, args, log_dir: Path, device: str):
         experiment=experiment,
     )
 
-    return PPO(
+    agent = PPO(
         models=models,
         memory=memory,
         observation_space=wrapped_env.observation_space,
@@ -248,10 +266,45 @@ def build_skrl_ppo(wrapped_env, args, log_dir: Path, device: str):
         cfg=cfg,
     )
 
+    if args.wandb:
+        # Mirror skrl's aggregated tracking data to wandb at each write
+        # interval (the fork only syncs TensorBoard, which is unreliable for
+        # short runs — see comment on sync_tensorboard above).
+        import wandb
+
+        original_write = agent.write_tracking_data
+
+        def write_tracking_data(*, timestep, timesteps):
+            if wandb.run is not None and agent.tracking_data:
+                metrics = {}
+                for k, v in agent.tracking_data.items():
+                    if k.endswith("(min)"):
+                        metrics[k] = float(np.min(v))
+                    elif k.endswith("(max)"):
+                        metrics[k] = float(np.max(v))
+                    else:
+                        metrics[k] = float(np.mean(v))
+                wandb.log(metrics, step=timestep)
+            original_write(timestep=timestep, timesteps=timesteps)
+
+        agent.write_tracking_data = write_tracking_data
+
+    return agent
+
 
 # ---------------------------------------------------------------------------
 # Isaac Lab backend
 # ---------------------------------------------------------------------------
+
+
+def finish_wandb():
+    """Finalize any active WandB run explicitly — Isaac's
+    simulation_app.close() bypasses atexit, leaving runs in 'running' forever
+    if we rely on process exit."""
+    import wandb
+
+    if wandb.run is not None:
+        wandb.finish()
 
 
 def train_isaaclab(args, log_dir: Path):
@@ -297,6 +350,7 @@ def train_isaaclab(args, log_dir: Path):
             )
             trainer.train()
             agent.save(str(log_dir / "agent.pt"))
+            finish_wandb()
         else:
             from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
             from rsl_rl.runners import OnPolicyRunner
@@ -307,9 +361,17 @@ def train_isaaclab(args, log_dir: Path):
             if args.max_iterations is not None:
                 cfg.max_iterations = args.max_iterations
             runner_cfg = cfg.to_dict()
-            runner_cfg["logger"] = "wandb" if args.wandb else "tensorboard"
             if args.wandb:
-                runner_cfg["wandb_project"] = args.wandb_project
+                # rsl-rl-lib 5.4 dict form (the plain "wandb" string is
+                # deprecated); entity flows through $WANDB_USERNAME.
+                if args.wandb_entity:
+                    os.environ.setdefault("WANDB_USERNAME", args.wandb_entity)
+                runner_cfg["logger"] = {
+                    "class_name": "WandbLogWriter",
+                    "project_name": args.wandb_project,
+                }
+            else:
+                runner_cfg["logger"] = "tensorboard"
 
             wrapped = RslRlVecEnvWrapper(env)
             obs_dim = wrapped.observation_space.shape[0]
@@ -322,6 +384,7 @@ def train_isaaclab(args, log_dir: Path):
             runner = OnPolicyRunner(wrapped, runner_cfg, log_dir=str(log_dir), device=device)
             runner.learn(num_learning_iterations=runner_cfg["max_iterations"])
             runner.save(str(log_dir / "model_final.pt"))
+            finish_wandb()
 
         env.close()
     finally:
@@ -339,67 +402,28 @@ def train_mjlab(args, log_dir: Path):
 
     from mjlab.envs import ManagerBasedRlEnv
     from skrl.trainers.torch import SequentialTrainer
-    from skrl.utils.runner.torch import Runner
 
     from rl.skrl_wrapper import SkrlVecEnvWrapper
 
     cfg = make_cfg()
     if args.num_envs is not None:
         cfg.scene.num_envs = args.num_envs
-    env = ManagerBasedRlEnv(cfg, device=args.device or "cuda:0")
+    device = args.device or "cuda:0"
+    env = ManagerBasedRlEnv(cfg, device=device)
     wrapped = SkrlVecEnvWrapper(env)
 
-    net_layers = [256, 128, 64]
-    runner_cfg = {
-        "seed": args.seed,
-        "timesteps": args.max_iterations or 1500,
-        "headless": True,
-        "agent": "PPO",
-        "models": {
-            "policy": [{"name": "net", "input": "STATES", "layers": net_layers, "activations": "elu"}],
-            "value": [{"name": "net", "input": "STATES", "layers": net_layers, "activations": "elu"}],
-        },
-        "agent_cfg": {
-            "rollouts": 24,
-            "learning_epochs": 5,
-            "mini_batches": 4,
-            "discount_factor": 0.99,
-            "lambda": 0.95,
-            "learning_rate": 1e-3,
-            "learning_rate_scheduler": "KLAdaptiveLR",
-            "learning_rate_scheduler_kwargs": {"kl_threshold": 0.01},
-            "state_preprocessor": "RunningStandardScaler",
-            "state_preprocessor_kwargs": {"size": tuple(wrapped.observation_space.shape), "device": None},
-            "value_preprocessor": "RunningStandardScaler",
-            "value_preprocessor_kwargs": {"size": 1, "device": None},
-            "grad_norm_clip": 1.0,
-            "ratio_clip": 0.2,
-            "value_clip": 0.2,
-            "clip_predicted_values": True,
-            "entropy_loss_scale": 0.0,
-            "learning_starts": 0,
-            "random_timesteps": 0,
-            "time_minibatches": True,
-        },
-        "memory": {"size": 24},
-        "tracking": {
-            "write_interval": 50,
-            "experiment": {
-                "name": f"mjlab/{args.task}",
-                "checkpoint_interval": 100,
-                "directory": str(log_dir),
-                **(
-                    {"tracking_type": "wandb", "tracking_config": {"project": args.wandb_project}}
-                    if args.wandb
-                    else {}
-                ),
-            },
-        },
-    }
-    runner = Runner(wrapped, runner_cfg)
-    runner.train()
-    for agent in runner.agents:
-        agent.save(str(log_dir / "agent.pt"))
+    # Same direct PPO construction as the isaaclab/mujoco paths — the fork's
+    # Runner no longer accepts the old YAML "tracking" block, so WandB logging
+    # goes through ExperimentCfg inside build_skrl_ppo.
+    agent = build_skrl_ppo(wrapped, args, log_dir, device)
+    trainer = SequentialTrainer(
+        cfg={"timesteps": args.max_iterations or 1500, "headless": True},
+        env=wrapped,
+        agents=[agent],
+    )
+    trainer.train()
+    agent.save(str(log_dir / "agent.pt"))
+    finish_wandb()
 
 
 # ---------------------------------------------------------------------------
@@ -429,6 +453,7 @@ def train_mujoco(args, log_dir: Path):
     )
     trainer.train()
     agent.save(str(log_dir / "agent.pt"))
+    finish_wandb()
     vec_env.close()
 
 

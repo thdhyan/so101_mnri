@@ -1,0 +1,81 @@
+# =============================================================================
+# SO-101 Isaac Lab training — SELF-CONTAINED Apptainer/Singularity definition
+#
+# Builds the full parity stack from scratch — NO Docker Hub dependency:
+#   python 3.12 + torch 2.11.0+cu128 + isaacsim 6.0.1.0 + isaaclab 3.0.0b2.post1
+#   + rsl-rl-lib 5.4.0 + mujoco 3.10.0 + mujoco-warp 3.10.0.1
+# The custom skrl fork (third_party/skrl submodule) is installed at RUNTIME
+# by the entrypoint — one SIF serves any fork revision.
+#
+# Build on the cluster (~30 GB of wheels; needs ~45 GB free in
+# $APPTAINER_CACHEDIR — point it at /xtra, see docker/CLUSTER_SETUP.md):
+#   singularity build --sandbox /xtra/thakk100/so101/build \
+#       /xtra/thakk100/so101/so101-train.sif docker/apptainer/so101_train.def
+#
+# Alternative (once docker images are pushed to Docker Hub):
+#   singularity pull so101-train.sif docker://docker.io/thdhyan/so101-isaac-train:3.0.0b2
+#
+# Run — see docker/CLUSTER_SETUP.md for the full procedure.
+# =============================================================================
+
+Bootstrap: docker
+From: nvcr.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04
+
+%files
+    docker/entrypoint.sh /usr/local/bin/so101-entrypoint.sh
+
+%post
+    export DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC \
+           OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y PIP_BREAK_SYSTEM_PACKAGES=1
+
+    apt-get update && apt-get install -y --no-install-recommends \
+        git git-lfs curl wget ca-certificates build-essential \
+        python3.12 python3.12-dev python3-pip python3.12-venv \
+        tmux htop nano less \
+        libglvnd0 libgl1 libglx0 libegl1 libgles2 \
+        libx11-6 libx11-xcb1 libxcb1 libxext6 libxi6 libxrender1 libxxf86vm1 \
+        libvulkan1 vulkan-tools mesa-utils \
+        libusb-1.0-0 libudev1 libgomp1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
+    && git lfs install
+
+    # torch -> isaacsim -> isaaclab (order matters)
+    python3 -m pip install --no-cache-dir "torch==2.11.0" \
+        --index-url https://download.pytorch.org/whl/cu128
+    python3 -m pip install --no-cache-dir \
+        "isaacsim[all,extscache]==6.0.1.0" --extra-index-url https://pypi.nvidia.com
+    python3 -m pip install --no-cache-dir \
+        "isaaclab==3.0.0b2.post1" --extra-index-url https://pypi.nvidia.com
+    python3 -m pip install --no-cache-dir \
+        "rsl-rl-lib==5.4.0" wandb huggingface_hub
+    # mujoco-warp pinned to the last version that doesn't break mjlab indexing
+    python3 -m pip install --no-cache-dir \
+        "mujoco==3.10.0" "mujoco-warp==3.10.0.1"
+
+    # fail the build loudly on version drift
+    python3 -c "import importlib.metadata as md, torch, isaaclab; \
+        assert md.version('isaacsim').startswith('6.0.1'), md.version('isaacsim'); \
+        assert md.version('isaaclab').startswith('3.0.0b2'), md.version('isaaclab'); \
+        assert md.version('rsl-rl-lib') == '5.4.0'; \
+        import mujoco, mujoco_warp; \
+        print('base stack OK:', md.version('isaaclab'), torch.__version__)"
+
+    echo "python3" > /etc/so101_python
+    chmod +x /usr/local/bin/so101-entrypoint.sh
+
+%environment
+    export OMNI_KIT_ACCEPT_EULA=YES
+    export SO101_WORKDIR=/tmp/so101_mnri
+    export SO101_MOUNT_DIR=/workspace/mounts
+    export SO101_REPO_URL=https://github.com/thdhyan/so101_mnri
+    export SO101_GIT_BRANCH=feature/mjlab
+
+%runscript
+    exec /usr/local/bin/so101-entrypoint.sh "$@"
+
+%test
+    PY="$(cat /etc/so101_python)"
+    "${PY}" -c "import isaaclab, torch, skrl" 2>/dev/null \
+      || "${PY}" -c "import isaaclab, torch; print('base ok (skrl installs at runtime):', isaaclab.__version__, torch.__version__)"

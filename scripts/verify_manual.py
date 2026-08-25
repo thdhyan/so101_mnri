@@ -45,6 +45,15 @@ def load_env(env_name: str, task: str = "push"):
     if env_name == "cyl_grasp":
         from envs.mujoco.so101_dual_arm_cylinder_grasp.env import SO101DualArmCylinderGraspEnv
         return SO101DualArmCylinderGraspEnv()
+    if env_name == "push_t":
+        from envs.mujoco.so101_single_arm_push_t.env import SO101SingleArmPushTEnv
+        return SO101SingleArmPushTEnv()
+    if env_name == "cube_push_ramp":
+        from envs.mujoco.so101_single_arm_cube_push_ramp.env import SO101SingleArmCubePushRampEnv
+        return SO101SingleArmCubePushRampEnv()
+    if env_name == "cube_push_bridge":
+        from envs.mujoco.so101_single_arm_cube_push_bridge.env import SO101SingleArmCubePushBridgeEnv
+        return SO101SingleArmCubePushBridgeEnv()
     from envs.mujoco.so101_dual_arm_cylinder_reach.env import SO101DualArmCylinderReachEnv
     return SO101DualArmCylinderReachEnv()
 
@@ -125,7 +134,7 @@ def interactive(env_name: str, cols: int = 3, tile_w: int = 480, tile_h: int = 3
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--env", choices=["single", "dual", "pick_lift", "pick_place", "cyl_grasp", "cyl_reach"], default="single")
+    ap.add_argument("--env", choices=["single", "dual", "pick_lift", "pick_place", "cyl_grasp", "cyl_reach", "push_t", "cube_push_ramp", "cube_push_bridge"], default="single")
     ap.add_argument("--headless-check", action="store_true",
                      help="Run automated checks only, no GUI (CI-safe).")
     args = ap.parse_args()
