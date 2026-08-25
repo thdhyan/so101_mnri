@@ -1,6 +1,11 @@
 __pycache__/
 *.pyc
 .DS_Store
+.venv/
+rl/runs/
+MUJOCO_LOG.TXT
+isaacsim/
+*.egg-info/
 images/*
 !images/single_arm_overview.png
 !images/dual_arm_overview.png
