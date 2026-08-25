@@ -11,7 +11,7 @@
   "meshes/<name>.stl" to point at this repo's mesh directory.
 
   See ../assets/scene.xml for the MJCF built from the same source model
-  (childclass "so101_new_calib") -- joint names/limits here match it exactly.
+  (childclass "so101_new_calib"): joint names/limits here match it exactly.
 -->
 <robot name="so101_new_calib">
 

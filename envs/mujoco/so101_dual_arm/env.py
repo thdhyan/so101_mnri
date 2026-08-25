@@ -97,7 +97,7 @@ class DualArmEnvConfig:
         CameraConfig("overhead_left",  pos=(0.637,  0.027, 1.248), euler=(-26.0,  0.5, -90.5), fov=80.0),
         CameraConfig("overhead_right", pos=(0.530, -0.491, 1.061), euler=(-67.0, -5.0,-159.5), fov=80.0),
         CameraConfig("overhead_cam",   pos=(0.35, 0.0, 1.45), euler=(0.0, 0.0, 90.0), fov=65.0),
-        CameraConfig("front_cam",      pos=(0.35, -1.05, 1.05), euler=(0.0, 55.0, 0.0), fov=65.0),
+        CameraConfig("front_cam",      pos=(0.40, -1.05, 1.05), euler=(75.0, 0.0, 0.0), fov=65.0),
     ])
 
     task: str = "push"

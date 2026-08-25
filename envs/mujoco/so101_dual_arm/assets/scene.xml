@@ -59,7 +59,7 @@
     <!-- Top-down overhead camera over table center -->
     <camera name="overhead_cam" pos="0.35 0.0 1.45" euler="0 0 90" fovy="65"/>
     <!-- Front-facing camera at eye height looking at the workspace -->
-    <camera name="front_cam" pos="0.35 -1.05 1.05" euler="0 55 0" fovy="65"/>
+    <camera name="front_cam" pos="0.40 -1.05 1.05" euler="75 0 0" fovy="65"/>
   </worldbody>
 
   <keyframe>

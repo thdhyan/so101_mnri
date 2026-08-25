@@ -34,8 +34,11 @@ changed. Edits from the source file:
 `so101_dual.urdf` places two copies of the single-arm model under a common `world`
 root link via fixed joints:
 
-- `left_base_link`  at `xyz="0.18  0.28 0.82"`, identity orientation
-- `right_base_link` at `xyz="0.18 -0.28 0.82"`, identity orientation
+- `left_base_link`  at `xyz="0.18  0.2286 0.82"`, identity orientation
+- `right_base_link` at `xyz="0.18 -0.2286 0.82"`, identity orientation
+
+(bases 18 in = 0.4572 m apart in Y, Z and X axes parallel — matches the real
+dual-arm rig)
 
 matching `left_base`/`right_base` placement in `envs/mujoco/so101_dual_arm/assets/scene.xml`
 (the 180° flip between base and shoulder is baked into the per-arm chain, same as

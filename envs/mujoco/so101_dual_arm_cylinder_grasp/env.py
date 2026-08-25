@@ -10,6 +10,8 @@ Cameras:
   - right_wrist     : attached to right gripper
   - overhead_left   : world-fixed, configurable
   - overhead_right  : world-fixed, configurable
+  - overhead_cam    : world-fixed top-down over the entire workspace, configurable
+  - front_cam       : world-fixed front view of the entire workspace, configurable
 
 Success: both grippers grasping their assigned end AND cylinder centre
 lifted above lift_threshold relative to its init height.
@@ -83,6 +85,9 @@ class DualArmCylinderGraspConfig:
     overhead_cameras: list = field(default_factory=lambda: [
         CameraConfig("overhead_left",  pos=(0.637,  0.027, 1.248), euler=(-26.0,  0.5, -90.5), fov=80.0),
         CameraConfig("overhead_right", pos=(0.530, -0.491, 1.061), euler=(-67.0, -5.0,-159.5), fov=80.0),
+        # Global cameras covering the entire workspace
+        CameraConfig("overhead_cam",   pos=(0.40, 0.0, 1.45), euler=(0.0, 0.0, 90.0), fov=65.0),
+        CameraConfig("front_cam",      pos=(0.40, -1.0, 1.05), euler=(75.0, 0.0, 0.0), fov=65.0),
     ])
 
     cylinder: CylinderConfig = field(default_factory=CylinderConfig)
