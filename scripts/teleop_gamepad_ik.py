@@ -14,6 +14,7 @@ Usage:
     MUJOCO_GL=egl python scripts/teleop_gamepad_ik.py --env single --dry-run
 """
 import argparse
+import math
 import sys
 import time
 
@@ -21,6 +22,10 @@ import numpy as np
 import mujoco
 
 from _env_utils import scene_path, joint_names, gripper_site_name, HOME_POSE, resolve_actuator_ids, resolve_joint_ids
+
+# Canonical SO-101 joint order (matches lerobot motor names) — index-aligned
+# with joint_ids/actuator_ids in IKTeleop.
+JOINT_SUFFIXES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 
 DEADZONE = 0.15
 LINEAR_SCALE = 0.15   # m/s at full stick deflection
@@ -192,7 +197,7 @@ def run_dry_run(env, arm, steps=100):
     print("[dry-run] OK")
 
 
-def run_gamepad(env, arm, device_index, no_viewer=False):
+def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
     import pygame
 
     pygame.init()
@@ -296,6 +301,13 @@ def run_gamepad(env, arm, device_index, no_viewer=False):
             data.ctrl[cur_ik.actuator_ids[roll_idx]] = data.qpos[qpos_adr[roll_idx]]
             data.ctrl[cur_ik.actuator_ids[pitch_idx]] = data.qpos[qpos_adr[pitch_idx]]
 
+            # mirror the active arm's joint targets to a real follower (sim + real together)
+            if mirror is not None:
+                mirror.send({
+                    f"{name}.pos": math.degrees(float(data.ctrl[aid]))
+                    for name, aid in zip(JOINT_SUFFIXES, cur_ik.actuator_ids)
+                })
+
             for _ in range(substeps):
                 mujoco.mj_step(model, data)
 
@@ -308,6 +320,11 @@ def run_gamepad(env, arm, device_index, no_viewer=False):
             elapsed = time.time() - t0
             time.sleep(max(0.0, dt_ctrl - elapsed))
     finally:
+        if mirror is not None:
+            try:
+                mirror.robot.disconnect()
+            except Exception:
+                pass
         if viewer is not None:
             viewer.close()
 
@@ -335,6 +352,10 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                          help="Run headless IK loop with a scripted circular target, 100 steps")
     parser.add_argument("--no-viewer", action="store_true", help="Disable passive viewer window")
+    parser.add_argument("--real-follower-port", default=None,
+                         help="Mirror IK joint targets to a real SO-101 follower on this port "
+                              "(sim + real move together; needs lerobot calibration for the follower)")
+    parser.add_argument("--real-follower-id", default=None, help="LeRobot calibration id for the follower")
     args = parser.parse_args()
 
     arm = args.arm if args.env == "dual" else None
@@ -343,7 +364,18 @@ def main():
         run_dry_run(args.env, arm)
         return
 
-    run_gamepad(args.env, arm if arm is not None else "left", args.device, no_viewer=args.no_viewer)
+    mirror = None
+    if args.real_follower_port:
+        from lerobot.robots.so_follower import SO101Follower
+        from lerobot.robots.so_follower.config_so_follower import SO101FollowerConfig
+
+        cfg = SO101FollowerConfig(port=args.real_follower_port, id=args.real_follower_id)
+        mirror = SO101Follower(cfg)
+        mirror.connect()
+        print(f"Mirroring IK targets to real follower on {args.real_follower_port}")
+
+    run_gamepad(args.env, arm if arm is not None else "left", args.device,
+                no_viewer=args.no_viewer, mirror=mirror)
 
 
 if __name__ == "__main__":
