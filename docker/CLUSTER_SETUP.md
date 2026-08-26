@@ -1,41 +1,52 @@
 # CLUSTER SETUP — so101 training on cs-zhang-net-01 (`zz-bw`)
 
-Briefing for the cluster-side agent. Everything writable lives under
-**`/xtra/thakk100/so101/`** (7.6 TB free NFS tank). Do NOT rely on `$HOME`
-(quota). Server: 2× RTX PRO 6000 Blackwell (96 GB), 64 cores, 503 GB RAM,
-`singularity-ce 4.1.1`, **no Slurm** (direct runs / tmux).
+Briefing for the cluster-side agent. Proven machine recipe (validated on the
+cosmos3-gen container — see ~/Projects/cosmos3-gen/COSMOS-bw.MD):
+
+- **No sudo, no /etc/subuid** → builds go through **proot at `~/bin/proot`**
+  (`export PATH="$HOME/bin:$PATH"` first). Never pass `--fakeroot`; expect
+  harmless chown/setgroups warnings.
+- **Staging MUST be local ext4** (`/export/scratch/thakk100`, ~825 G free):
+  `SINGULARITY_TMPDIR` on NFS (`/xtra`) fails with `unpriv.lremovexattr`.
+  `/tmp` (9.8 G) is too small for builds.
+- **Home = 10 GiB quota** — code only, never caches/SIF (`csequota -s`).
+- **sm_120 Blackwell**: cu128 wheels only (our stack pins torch 2.11.0+cu128 ✓).
+  Driver 580.159.03 / CUDA 13.0.
+- GPU 1 is often busy with another user's job — check `nvidia-smi` first,
+  never kill PIDs you don't own.
+- Scratch is shared + purge-eligible: durable outputs go to `/xtra/thakk100`,
+  the SIF lives on scratch (rebuild is cheap once cached).
 
 ```
-/xtra/thakk100/so101/            ← everything happens here
-├── so101_mnri/                  ← git clone of this repo (build context)
-├── so101-train.sif              ← built SIF (~25 GB unpacked; cache elsewhere)
-├── docker.env                   ← secrets, chmod 600, NEVER committed
-├── runs/                        ← bind → container rl/runs (checkpoints, TB)
-├── logs/                        ← bind → container /workspace/mounts/logs
-└── cache/                       ← APPTAINER_CACHEDIR + TMPDIR (build blobs)
+/export/scratch/thakk100/        ← SIF + singularity staging (local NVMe, fast)
+├── so101-train.sif
+├── sing-tmp/  sing-cache/
+/xtra/thakk100/so101/            ← durable outputs (NFS, 7.6 T)
+├── runs/  logs/  docker.env
+/home/thakk100/Projects/so101_mnri   ← repo clone (code only)
 ```
 
 ## Step 0 — preflight (run as-is, expect all green)
 
 ```bash
 ssh zz-bw
-nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv   # driver ≥ 580 for Blackwell+kit
-singularity --version                                                   # 4.1.1
-df -h /xtra/thakk100 | tail -1                                          # ~7.6T free
-curl -sI https://pypi.nvidia.com -o /dev/null -w '%{http_code}\n'       # 200
+export PATH="$HOME/bin:$PATH"          # proot lives here
+proot --version                        # 5.3.1
+nvidia-smi --query-gpu=name,driver_version,memory.used --format=csv   # pick a free GPU
+singularity --version                  # 4.1.1
+df -h /export/scratch/thakk100 | tail -1   # staging space (~825 G)
+csequota -s                            # home quota check (NOT `quota`)
+curl -sI https://pypi.nvidia.com -o /dev/null -w '%{http_code}\n'   # 200
 ```
 
-## Step 1 — layout + cache redirection (home quota!)
+## Step 1 — staging + cache redirection (load-bearing — NFS tmpdir breaks builds)
 
 ```bash
-mkdir -p /xtra/thakk100/so101/{runs,logs,cache}
-cat >> ~/.bashrc <<'EOF'
-export APPTAINER_CACHEDIR=/xtra/thakk100/so101/cache
-export APPTAINER_TMPDIR=/xtra/thakk100/so101/cache
-export SINGULARITY_CACHEDIR=/xtra/thakk100/so101/cache
-export SINGULARITY_TMPDIR=/xtra/thakk100/so101/cache
-EOF
-source ~/.bashrc
+export PATH="$HOME/bin:$PATH"                      # proot — required for build
+export SCRATCH=/export/scratch/thakk100            # local ext4 — NOT /xtra (NFS xattr bug)
+export SINGULARITY_TMPDIR=$SCRATCH/sing-tmp
+export SINGULARITY_CACHEDIR=$SCRATCH/sing-cache
+mkdir -p "$SINGULARITY_TMPDIR" "$SINGULARITY_CACHEDIR" /xtra/thakk100/so101/{runs,logs}
 ```
 
 ## Step 2 — get the repo onto the cluster
@@ -63,22 +74,30 @@ EOF
 chmod 600 /xtra/thakk100/so101/docker.env
 ```
 
-## Step 4 — build the SIF (~30 GB downloads → cache on /xtra; ~30–60 min)
+## Step 4 — build the SIF (~20–40 min under proot; run inside tmux)
 
 ```bash
-cd /xtra/thakk100/so101/so101_mnri
-singularity build /xtra/thakk100/so101/so101-train.sif docker/apptainer/so101_train.def
-singularity test /xtra/thakk100/so101/so101-train.sif     # version-parity check
+export PATH="$HOME/bin:$PATH"
+export SCRATCH=/export/scratch/thakk100
+export SINGULARITY_TMPDIR=$SCRATCH/sing-tmp SINGULARITY_CACHEDIR=$SCRATCH/sing-cache
+tmux new -s so101build     # builds survive disconnects
+cd /home/thakk100/Projects/so101_mnri && git pull
+singularity build $SCRATCH/so101-train.sif docker/apptainer/so101_train.def
+singularity test $SCRATCH/so101-train.sif     # version-parity check
 ```
 
-The build asserts exact versions (isaaclab 3.0.0b2 / isaacsim 6.0.1 / rsl-rl
-5.4.0 / warp 3.10.0.1) and fails loudly on drift — do not "fix" by loosening.
+No `--fakeroot` (it cannot work here); proot emits harmless
+chown/setgroups warnings. The build asserts exact versions (isaaclab
+3.0.0b2 / isaacsim 6.0.1 / rsl-rl 5.4.0 / warp 3.10.0.1) and fails loudly
+on drift — do not "fix" by loosening.
 
 ## Step 5 — smoke tests (in order; each proves one more layer)
 
 ```bash
+export PATH="$HOME/bin:$PATH"
+SCRATCH=/export/scratch/thakk100
 cd /xtra/thakk100/so101
-S="singularity run --nv --cleanenv --bind $PWD/runs:/workspace/mounts/runs --bind $PWD/logs:/workspace/mounts/logs --env-file docker.env so101-train.sif"
+S="singularity run --nv --cleanenv --bind $PWD/runs:/workspace/mounts/runs --bind $PWD/logs:/workspace/mounts/logs --env-file docker.env $SCRATCH/so101-train.sif"
 
 # 5a. clone + custom-skrl install + mujoco backend + a new env (CPU, ~3 min)
 $S --backend mujoco --task push_t --algo skrl --max-iterations 2 --no-wandb --device cpu
@@ -98,8 +117,9 @@ test.md).
 
 ```bash
 tmux new -s so101
+export PATH="$HOME/bin:$PATH"
 cd /xtra/thakk100/so101
-S="singularity run --nv --cleanenv --bind $PWD/runs:/workspace/mounts/runs --bind $PWD/logs:/workspace/mounts/logs --env-file docker.env so101-train.sif"
+S="singularity run --nv --cleanenv --bind $PWD/runs:/workspace/mounts/runs --bind $PWD/logs:/workspace/mounts/logs --env-file docker.env /export/scratch/thakk100/so101-train.sif"
 
 # suggested first real run (HANDOFF open work #1):
 $S --backend isaaclab --task SO101-PickLift-Single-v0 --algo skrl --num-envs 4096
@@ -108,23 +128,29 @@ $S --backend isaaclab --task SO101-PickLift-Single-v0 --algo skrl --num-envs 409
 ```
 
 Second GPU: same command with `--nv` uses GPU 0 by default; pin via
-`CUDA_VISIBLE_DEVICES=1 $S ...`. Run two different experiments concurrently
-(96 GB each — no contention).
+`CUDA_VISIBLE_DEVICES=1 $S ...`. **Check `nvidia-smi` first** — GPU 1 is
+often busy with another user's job; never kill PIDs you don't own. Both
+cards have 96 GB, so two concurrent experiments fit easily when free.
 
 ## Outputs & monitoring
 
 - checkpoints/TensorBoard: `/xtra/thakk100/so101/runs/<backend>/<task>_<algo>/<stamp>/`
 - wandb: project `so101-rl` (entity thakk100-dhyan-home), live during training
-- container-internal clone: `/tmp/so101_mnri` (node-local disk — kit-friendly;
-  wiped on reboot, re-clones automatically on next run; do NOT bind /tmp to NFS)
+- container-internal clone: `/tmp/so101_mnri` (node-local ext4 — kit-friendly;
+  wiped on reboot, re-clones automatically; do NOT bind /tmp to NFS)
+- the SIF lives on scratch (purge-eligible) — rebuild is cheap once
+  `$SINGULARITY_CACHEDIR` is warm; durable outputs are on /xtra
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| build: "No space left" | APPTAINER_CACHEDIR/TMPDIR not exported (Step 1) |
+| build: `no mapping entry found in /etc/subuid` | you passed `--fakeroot` — don't; proot mode is the only path here |
+| build: `unpriv.lremovexattr: invalid argument` | SINGULARITY_TMPDIR is on NFS — must be /export/scratch (local ext4) |
+| build: `disk quota exceeded` | caches/SIF landed on home — redo Step 1 exports |
+| build: `proot: command not found` | `export PATH="$HOME/bin:$PATH"` |
 | clone 404 in entrypoint | repo private → GITHUB_TOKEN in docker.env |
 | `submodules not fetched` fatal | same — token missing/expired |
-| 5b silent death (exit 0) | free RAM/GPU, retry; check `~/.local/share/...` no — kit log is inside container: rerun with `--bind /xtra/thakk100/so101/logs/kit:/root/.nvidia-omniverse/logs` |
+| 5b silent death (exit 0) | free RAM/GPU, retry; kit log: rerun with `--bind /xtra/thakk100/so101/logs/kit:/root/.nvidia-omniverse/logs` |
 | wandb prompts for login interactively | WANDB_API_KEY missing in docker.env (or add WANDB_MODE=offline) |
-| Blackwell kernel errors in torch | confirm the SIF torch is cu128 (`singularity exec SIF python3 -c "import torch;print(torch.__version__)"`) |
+| Blackwell kernel errors in torch | confirm cu128 inside SIF: `singularity exec --nv $SCRATCH/so101-train.sif python3 -c "import torch; print(torch.__version__, torch.cuda.get_arch_list())"` — want 2.11.0+cu128 and sm_120 |
