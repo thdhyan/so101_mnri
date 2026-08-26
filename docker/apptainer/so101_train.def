@@ -73,6 +73,7 @@ From: nvcr.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04
 %environment
     export OMNI_KIT_ACCEPT_EULA=YES
     export PIP_BREAK_SYSTEM_PACKAGES=1
+    export MUJOCO_GL=egl
     export SO101_WORKDIR=/tmp/so101_mnri
     export SO101_MOUNT_DIR=/workspace/mounts
     export SO101_REPO_URL=https://github.com/thdhyan/so101_mnri

@@ -1,6 +1,11 @@
 #!/usr/bin/env python
 """Gamepad Cartesian teleop for SO-101 (single or dual arm) via damped-least-squares IK.
 
+Driver: DualShock 4 ("Wireless Controller"), USB or Bluetooth, read through
+pygame 2.x's SDL layer. `DS4Gamepad` below prefers SDL2's standardized
+game-controller mapping and falls back to the raw DS4-on-Linux layout
+(LX=a0 LY=a1 RX=a2 L2=a3 R2=a4 RY=a5, triggers resting at -1).
+
 The IK / target-tracking logic lives in the `IKTeleop` class, decoupled from the
 gamepad-reading loop. `IKTeleop.set_ee_target(pos, quat=None)` and
 `IKTeleop.set_gripper(openness)` are the two entry points a driver needs to call
@@ -8,15 +13,46 @@ each control tick -- the gamepad loop below is one such driver. A future driver
 based on mujoco-ar-viewer (https://github.com/Improbable-AI/mujoco-ar-viewer) can
 call the exact same two methods instead of reading a joystick.
 
+DS4 control mapping (also printed at startup):
+    Left stick X/Y       EE x/y velocity            (LINEAR_SCALE m/s at full)
+    Right stick Y        EE z velocity              (LINEAR_SCALE m/s at full)
+    Right stick X        wrist_roll rate            (ROLL_SCALE rad/s)
+    L1 / R1              wrist_flex (pitch) rate    (PITCH_SCALE rad/s, opposite)
+    L2 / R2 (analog)     gripper close / open rate  (GRIPPER_SCALE rad/s)
+    Options              RE-CENTER: snap IK target to current EE pose
+                         (also resumes from e-stop)  <-- safety: use liberally
+    Share                toggle active arm (dual env only; both arms stay simulated)
+    PS button            E-STOP latch: all arms freeze at current pose, neutral
+                         gripper; press Options to re-center and resume
+    Square               safe quit: freeze at current pose, neutral gripper,
+                         settle 0.5 s, exit cleanly
+
+DS4 setup (demo day):
+    1. Pair: hold SHARE + PS until the light bar double-flashes, then connect
+       "Wireless Controller" in your Bluetooth manager -- or just plug USB.
+    2. User must read /dev/input: `sudo usermod -aG input $USER`, log out/in,
+       verify with `groups`.
+    3. Verify pairing + axes/buttons live in 5 seconds:
+           python scripts/check_gamepad.py
+    4. No device listed? `sudo modprobe joydev` and replug/re-pair.
+
 Usage:
     MUJOCO_GL=egl python scripts/teleop_gamepad_ik.py --env single
     MUJOCO_GL=egl python scripts/teleop_gamepad_ik.py --env dual --arm left
     MUJOCO_GL=egl python scripts/teleop_gamepad_ik.py --env single --dry-run
+
+Limitation -- `--arm both` intentionally NOT offered: the IK layer trivially
+supports two independent IKTeleop instances (dual mode already solves both
+arms every tick), but a single DS4 has only 4 stick DoF while driving two
+arms' XY+Z simultaneously needs 6; the supported dual workflow is Share-
+toggle between arms. Adding 'both' is a control-mapping problem, not an IK
+architecture problem.
 """
 import argparse
 import math
 import sys
 import time
+from dataclasses import dataclass, field
 
 import numpy as np
 import mujoco
@@ -28,11 +64,13 @@ from _env_utils import scene_path, joint_names, gripper_site_name, HOME_POSE, re
 JOINT_SUFFIXES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 
 DEADZONE = 0.15
+TRIGGER_DEADZONE = 0.08  # applied after [-1,1] -> [0,1] normalization
 LINEAR_SCALE = 0.15   # m/s at full stick deflection
 ROLL_SCALE = 1.5       # rad/s at full stick deflection
 PITCH_SCALE = 1.0      # rad/s for shoulder buttons
 GRIPPER_SCALE = 1.5    # rad/s
 CONTROL_HZ = 60.0
+NEUTRAL_GRIPPER = 0.5  # openness used by e-stop / safe shutdown
 
 
 def apply_deadzone(x, dz=DEADZONE):
@@ -41,6 +79,200 @@ def apply_deadzone(x, dz=DEADZONE):
     # rescale so output is continuous from 0 at the deadzone edge
     sign = 1.0 if x > 0 else -1.0
     return sign * (abs(x) - dz) / (1.0 - dz)
+
+
+# ---------------------------------------------------------------------------
+# DualShock 4 reader
+#
+# Raw SDL-joystick layout for a DS4 on Linux (USB or Bluetooth, hid-play /
+# hid-sony kernels, matches SDL's bundled gamecontrollerdb entry for Sony
+# pads -- note the classic quirk: triggers occupy axes 3/4 and right-stick-Y
+# is axis 5):
+#     axes    0=LX  1=LY  2=RX  3=L2  4=R2  5=RY     (L2/R2 rest at -1)
+#     buttons 0=square 1=cross 2=circle 3=triangle 4=L1 5=R1
+#             8=share 9=options 10=L3 11=R3 17=PS(guide); dpad -> hat 0
+# When SDL recognizes the pad as a game controller we use the standardized
+# pygame._sdl2.controller API instead (identical logical mapping, immune to
+# firmware/kernel axis-order differences).
+# ---------------------------------------------------------------------------
+RAW_DS4_AXES = {"lx": 0, "ly": 1, "rx": 2, "l2": 3, "r2": 4, "ry": 5}
+RAW_DS4_BUTTONS = {
+    "square": 0, "cross": 1, "circle": 2, "triangle": 3,
+    "l1": 4, "r1": 5, "share": 8, "options": 9, "l3": 10, "r3": 11,
+}
+ALL_BUTTON_NAMES = ["square", "cross", "circle", "triangle",
+                    "l1", "r1", "share", "options", "ps", "l3", "r3"]
+
+NO_GAMEPAD_HELP = """No gamepad detected. Demo-day checklist:
+  1. Plug the DS4 in over USB, or pair Bluetooth: hold SHARE + PS until the
+     light bar double-flashes, connect "Wireless Controller".
+  2. Permission: you must be in the 'input' group to read /dev/input --
+     `groups` to check, `sudo usermod -aG input $USER` + re-login to fix.
+  3. Kernel driver: `sudo modprobe joydev`, then replug / re-pair.
+  4. Diagnose live with: python scripts/check_gamepad.py"""
+
+
+@dataclass
+class PadState:
+    left_stick: np.ndarray   # (2,) deadzoned, [-1, 1]
+    right_stick: np.ndarray  # (2,) deadzoned, [-1, 1]
+    l2: float                # [0, 1]
+    r2: float                # [0, 1]
+    buttons: dict = field(default_factory=dict)  # name -> bool (incl. "ps")
+    dpad: tuple = (0, 0)     # hat value (-1..1 per component)
+
+
+def ds4_trigger_norm(raw):
+    """Raw DS4 joystick trigger rests at -1 and pulls to +1 -> [0, 1]."""
+    return float(np.clip((raw + 1.0) / 2.0, 0.0, 1.0))
+
+
+def _trigger_dz(v):
+    """Small deadzone on a normalized [0, 1] trigger value."""
+    return 0.0 if v < TRIGGER_DEADZONE else float(v)
+
+
+class DS4Gamepad:
+    """Reads one DualShock 4 ('Wireless Controller') via pygame 2.x SDL.
+
+    Primary path: SDL2 game-controller mapping (pygame._sdl2.controller) --
+    consistent across USB/Bluetooth regardless of kernel quirks.
+    Fallback path: raw DS4 indices (RAW_DS4_AXES / RAW_DS4_BUTTONS above).
+    """
+
+    def __init__(self, device_index=0):
+        import pygame
+
+        self._pygame = pygame
+        n = pygame.joystick.get_count()
+        if n == 0:
+            raise RuntimeError(NO_GAMEPAD_HELP)
+        idx = min(max(device_index, 0), n - 1)
+        self.joy = pygame.joystick.Joystick(idx)
+        self.joy.init()
+        self.name = self.joy.get_name()
+        self._mode = "sdl2-controller"
+        self._ctl = None
+        try:
+            from pygame._sdl2 import controller as sdl2_controller
+            sdl2_controller.init()
+            try:
+                self._ctl = sdl2_controller.Controller.from_joystick(self.joy)
+            except Exception:
+                self._ctl = None
+                raise
+        except Exception:
+            self._ctl = None
+            self._mode = "raw-ds4"
+            if self.joy.get_numaxes() != len(RAW_DS4_AXES):
+                print(f"[gamepad] WARNING: '{self.name}' exposes "
+                      f"{self.joy.get_numaxes()} axes (expected 6 for a DS4); "
+                      f"trigger/right-stick indices may be wrong.")
+            if "4c05" not in (self.joy.get_guid() or ""):
+                print(f"[gamepad] WARNING: GUID does not look like a Sony pad; "
+                      f"raw button indices may differ.")
+
+    @property
+    def mode(self):
+        return self._mode
+
+    @classmethod
+    def detect(cls, device_index=0):
+        """Return a connected DS4Gamepad or None (never raises)."""
+        import pygame
+        pygame.joystick.init()
+        if pygame.joystick.get_count() == 0:
+            return None
+        try:
+            return cls(device_index)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _btn_const(pygame, *names):
+        for n in names:
+            c = getattr(pygame, n, None)
+            if c is not None:
+                return c
+        return None
+
+    def poll(self):
+        """Pump SDL events and return a deadzoned PadState snapshot."""
+        pygame = self._pygame
+        pygame.event.pump()
+
+        if self._ctl is not None:
+            A = pygame.CONTROLLER_AXIS_LEFTX, pygame.CONTROLLER_AXIS_LEFTY, \
+                pygame.CONTROLLER_AXIS_RIGHTX, pygame.CONTROLLER_AXIS_RIGHTY, \
+                pygame.CONTROLLER_AXIS_TRIGGERLEFT, pygame.CONTROLLER_AXIS_TRIGGERRIGHT
+            lx, ly, rx, ry, lt, rt = (self._ctl.get_axis(a) for a in A)
+            # SDL game-controller trigger axes already span [0, 1] (rest = 0)
+            l2, r2 = _trigger_dz(min(max(lt, 0.0), 1.0)), _trigger_dz(min(max(rt, 0.0), 1.0))
+
+            def held(*names):
+                c = self._btn_const(pygame, *names)
+                return bool(self._ctl.get_button(c)) if c is not None else False
+
+            # NOTE: pygame exposes the classic SDL button names (A/B/X/Y,
+            # BACK/START/GUIDE); newer pygame may add SHARE/MISC1, so each
+            # lookup tries modern names first and falls back to the SDL
+            # standard mapping for a DualShock 4:
+            #   cross->A, circle->B, square->X, triangle->Y,
+            #   share->BACK, options->START, PS->GUIDE (or MISC1).
+            buttons = {
+                "square": held("CONTROLLER_BUTTON_SQUARE", "CONTROLLER_BUTTON_X"),
+                "cross": held("CONTROLLER_BUTTON_CROSS", "CONTROLLER_BUTTON_A"),
+                "circle": held("CONTROLLER_BUTTON_CIRCLE", "CONTROLLER_BUTTON_B"),
+                "triangle": held("CONTROLLER_BUTTON_TRIANGLE", "CONTROLLER_BUTTON_Y"),
+                "l1": held("CONTROLLER_BUTTON_LEFTSHOULDER"),
+                "r1": held("CONTROLLER_BUTTON_RIGHTSHOULDER"),
+                "share": held("CONTROLLER_BUTTON_SHARE", "CONTROLLER_BUTTON_BACK"),
+                "options": held("CONTROLLER_BUTTON_START"),
+                "ps": held("CONTROLLER_BUTTON_MISC1", "CONTROLLER_BUTTON_GUIDE"),
+                "l3": held("CONTROLLER_BUTTON_LEFTSTICK"),
+                "r3": held("CONTROLLER_BUTTON_RIGHTSTICK"),
+            }
+        else:
+            ax = self.joy.get_numaxes()
+            lx = self.joy.get_axis(RAW_DS4_AXES["lx"])
+            ly = self.joy.get_axis(RAW_DS4_AXES["ly"])
+            rx = self.joy.get_axis(RAW_DS4_AXES["rx"]) if ax > 2 else 0.0
+            ry = self.joy.get_axis(RAW_DS4_AXES["ry"]) if ax > 5 else (
+                self.joy.get_axis(3) if ax > 3 else 0.0)
+            l2_raw = self.joy.get_axis(RAW_DS4_AXES["l2"]) if ax > 3 else -1.0
+            r2_raw = self.joy.get_axis(RAW_DS4_AXES["r2"]) if ax > 4 else -1.0
+            l2, r2 = _trigger_dz(ds4_trigger_norm(l2_raw)), _trigger_dz(ds4_trigger_norm(r2_raw))
+
+            nb = self.joy.get_numbuttons()
+
+            def raw(i):
+                return bool(self.joy.get_button(i)) if i < nb else False
+
+            # dpad-as-buttons firmwares repurpose 12-16, so only trust 13 for
+            # PS when a hat exists (i.e. 12-16 are genuinely unused).
+            ps_idx_candidates = (17, 13) if self.joy.get_numhats() > 0 else (17,)
+            buttons = {name: raw(i) for name, i in RAW_DS4_BUTTONS.items()}
+            buttons["ps"] = any(raw(i) for i in ps_idx_candidates)
+
+        return PadState(
+            left_stick=np.array([apply_deadzone(lx), apply_deadzone(ly)]),
+            right_stick=np.array([apply_deadzone(rx), apply_deadzone(ry)]),
+            l2=l2,
+            r2=r2,
+            buttons=buttons,
+            dpad=self.joy.get_hat(0) if self.joy.get_numhats() > 0 else (0, 0),
+        )
+
+
+def print_mapping_table():
+    print("""DS4 mapping:
+  left stick X/Y .... EE x/y vel      right stick Y ..... EE z vel
+  right stick X ..... wrist_roll      L1 / R1 ........... wrist pitch -/+
+  L2 / R2 ........... gripper close/open
+  OPTIONS ........... re-center IK target to current EE pose (safety)
+  SHARE ............. toggle active arm (dual env)
+  PS ................ E-STOP latch (freeze + neutral gripper; Options resumes)
+  SQUARE ............ safe quit (freeze + neutral gripper + settle)""")
 
 
 class IKTeleop:
@@ -90,6 +322,16 @@ class IKTeleop:
 
     def nudge_ee_target(self, delta_pos):
         self.ee_target = self.ee_target + np.asarray(delta_pos, dtype=float)
+
+    def recenter_target(self):
+        """Safety: snap EE target to current EE pose and sync gripper openness
+        to the gripper's actual position (used by Options re-center and e-stop).
+        Zeroes commanded motion without moving the arm."""
+        self.ee_target = self._current_ee_pos()
+        self.ee_target_quat = None
+        lo, hi = self.jnt_range[self._gripper_local_idx]
+        gq = self.data.qpos[self.qpos_adr[self._gripper_local_idx]]
+        self.gripper_openness = float(np.clip((gq - lo) / max(hi - lo, 1e-9), 0.0, 1.0))
 
     # ---- internals ----
     def _current_ee_pos(self):
@@ -173,7 +415,51 @@ def build_ik(env, arm):
     return model, data, ik
 
 
+def self_test_pad_math():
+    """Offline sanity of deadzone/trigger math -- no hardware needed."""
+    assert apply_deadzone(0.0) == 0.0
+    assert abs(apply_deadzone(DEADZONE)) < 1e-12
+    assert abs(apply_deadzone(-DEADZONE)) < 1e-12
+    for x in np.linspace(-1, 1, 201):
+        y = apply_deadzone(x)
+        assert -1.0 <= y <= 1.0
+        if abs(x) >= DEADZONE:
+            assert (y > 0) == (x > 0) or y == 0.0
+    grid = [apply_deadzone(x) for x in np.linspace(DEADZONE, 1.0, 50)]
+    assert all(b > a for a, b in zip(grid, grid[1:])), "deadzone must be monotonic"
+    assert ds4_trigger_norm(-1.0) == 0.0 and ds4_trigger_norm(1.0) == 1.0
+    assert ds4_trigger_norm(0.0) == 0.5
+    print("[dry-run] DS4 mapping math self-test OK")
+
+
+def probe_gamepad():
+    """Exercise DS4Gamepad detection; prints guidance when no device is present.
+
+    Never fails the dry-run -- hardware absence is an expected condition here.
+    """
+    import pygame
+    pygame.init()
+    pygame.joystick.init()
+    pad = DS4Gamepad.detect()
+    if pad is None:
+        print("[dry-run] no gamepad detected (fine for a hardware-free dry-run)")
+        for line in NO_GAMEPAD_HELP.splitlines():
+            print(f"[dry-run]   {line}")
+        return
+    try:
+        st = pad.poll()
+        print(f"[dry-run] gamepad detected: {pad.name} [{pad.mode}]")
+        print(f"[dry-run]   sticks=({st.left_stick[0]:+.2f},{st.left_stick[1]:+.2f}) "
+              f"({st.right_stick[0]:+.2f},{st.right_stick[1]:+.2f}) "
+              f"L2={st.l2:.2f} R2={st.r2:.2f} dpad={st.dpad}")
+        held = [n for n, v in st.buttons.items() if v] or ["none"]
+        print(f"[dry-run]   buttons held: {', '.join(held)}")
+    except Exception as e:
+        print(f"[dry-run] gamepad present but unreadable ({e}); see checklist above")
+
+
 def run_dry_run(env, arm, steps=100):
+    self_test_pad_math()
     model, data, ik = build_ik(env, arm)
     center = ik._current_ee_pos().copy()
     radius = 0.05
@@ -194,6 +480,14 @@ def run_dry_run(env, arm, steps=100):
     if err > 0.05:
         print("[dry-run] WARNING: error exceeds 5 cm threshold")
         sys.exit(1)
+
+    # safety-feature smoke test: recenter must zero EE target motion without moving
+    pre_q = ik._current_qpos().copy()
+    ik.recenter_target()
+    assert np.allclose(ik.ee_target, ik._current_ee_pos())
+    assert pre_q.shape == ik._current_qpos().shape
+    probe_gamepad()
+
     print("[dry-run] OK")
 
 
@@ -201,17 +495,9 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
     import pygame
 
     pygame.init()
-    pygame.joystick.init()
-    if pygame.joystick.get_count() == 0:
-        print("No joystick found. Connect a gamepad or use --dry-run.")
-        sys.exit(1)
-    joy = pygame.joystick.Joystick(device_index)
-    joy.init()
-    print(f"Using joystick: {joy.get_name()}")
-
     model, data, ik = build_ik(env, arm)
 
-    active_arm = arm  # only meaningful for dual; toggled via button
+    active_arm = arm  # only meaningful for dual; toggled via Share
     ik_by_arm = {arm: ik}
     if env == "dual":
         other = "right" if arm == "left" else "left"
@@ -226,80 +512,121 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
         ik_by_arm[other] = IKTeleop(model, data, joint_ids, actuator_ids, site_id)
         mujoco.mj_forward(model, data)
 
+    pad = DS4Gamepad.detect(device_index)
+    if pad is None:
+        print(NO_GAMEPAD_HELP)
+        sys.exit(1)
+    print(f"Using gamepad: {pad.name} [{pad.mode}]")
+    print_mapping_table()
+
     dt_ctrl = 1.0 / CONTROL_HZ
     substeps = max(1, int(round(dt_ctrl / model.opt.timestep)))
 
-    toggle_button_prev = False
+    def freeze_and_settle(label):
+        """Zero velocity at the current pose, neutral gripper, brief settle."""
+        for a in ik_by_arm.values():
+            a.set_ee_target(a._current_ee_pos())
+            a.set_gripper(NEUTRAL_GRIPPER)
+        for a in ik_by_arm.values():
+            a.solve_step()
+        for _ in range(substeps * 30):  # ~0.5 s
+            mujoco.mj_step(model, data)
+        print(f"[{label}] arms frozen at current pose, gripper neutral")
 
     viewer = None
     if not no_viewer:
-        import mujoco.viewer
-        viewer = mujoco.viewer.launch_passive(model, data)
+        # NOTE: must use the "as" form -- plain `import mujoco.viewer` would
+        # bind `mujoco` as a function-local name and break earlier uses.
+        import mujoco.viewer as mujoco_viewer
+        viewer = mujoco_viewer.launch_passive(model, data)
+
+    prev_buttons = {}
+    estop = False
+    running = True
+    next_status = time.time()
 
     try:
-        running = True
         while running:
             t0 = time.time()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
 
-            lx = apply_deadzone(joy.get_axis(0))
-            ly = apply_deadzone(joy.get_axis(1))
-            rx = apply_deadzone(joy.get_axis(2)) if joy.get_numaxes() > 2 else 0.0
-            ry = apply_deadzone(joy.get_axis(3)) if joy.get_numaxes() > 3 else 0.0
+            try:
+                st = pad.poll()
+            except pygame.error as e:
+                print(f"\n[gamepad] controller lost ({e})")
+                running = False
+                break
 
-            # triggers: axis 4/5 on many pads, else fall back to buttons
-            trig_open = 0.0
-            trig_close = 0.0
-            if joy.get_numaxes() > 5:
-                trig_close = max(0.0, apply_deadzone(joy.get_axis(4)))
-                trig_open = max(0.0, apply_deadzone(joy.get_axis(5)))
+            # rising edges
+            edges = {}
+            for name, now in st.buttons.items():
+                was = prev_buttons.get(name, False)
+                edges[name] = now and not was
+                prev_buttons[name] = now
 
-            nbtn = joy.get_numbuttons()
-            btn = lambda i: joy.get_button(i) if i < nbtn else 0
+            if edges.get("square"):
+                running = False
+                break
 
-            # shoulder buttons (LB/RB, commonly 4/5) -> pitch (wrist_flex) rate
-            pitch_rate = (btn(5) - btn(4)) * PITCH_SCALE
+            if edges.get("ps"):
+                estop = not estop
+                print(f"[ESTOP] {'LATCHED' if estop else 'released'} "
+                      f"(freeze + neutral gripper; OPTIONS re-centers and resumes)")
 
-            # toggle active arm (dual only) on button 6 (back/select) rising edge
-            if env == "dual":
-                toggle_now = bool(btn(6))
-                if toggle_now and not toggle_button_prev:
-                    active_arm = "right" if active_arm == "left" else "left"
-                    print(f"Active arm -> {active_arm}")
-                toggle_button_prev = toggle_now
+            if edges.get("options"):
+                for a in ik_by_arm.values():
+                    a.recenter_target()
+                estop = False
+                print("[recenter] IK target snapped to current EE pose")
+
+            if env == "dual" and edges.get("share"):
+                active_arm = "right" if active_arm == "left" else "left"
+                print(f"Active arm -> {active_arm}")
 
             cur_ik = ik_by_arm[active_arm]
 
-            vx = -ly * LINEAR_SCALE
-            vy = -lx * LINEAR_SCALE
-            vz = -ry * LINEAR_SCALE
-            wrist_roll_rate = rx * ROLL_SCALE
-            gripper_rate = (trig_open - trig_close) * GRIPPER_SCALE
+            if estop:
+                for a in ik_by_arm.values():
+                    a.set_ee_target(a._current_ee_pos())
+                    a.set_gripper(NEUTRAL_GRIPPER)
+            else:
+                lx, ly = st.left_stick
+                rx, ry = st.right_stick
 
-            new_target = cur_ik.ee_target + np.array([vx, vy, vz]) * dt_ctrl
-            cur_ik.set_ee_target(new_target)
+                vx = -ly * LINEAR_SCALE
+                vy = -lx * LINEAR_SCALE
+                vz = -ry * LINEAR_SCALE
+                wrist_roll_rate = rx * ROLL_SCALE
+                pitch_rate = (float(st.buttons.get("r1", False))
+                              - float(st.buttons.get("l1", False))) * PITCH_SCALE
+                gripper_rate = (st.r2 - st.l2) * GRIPPER_SCALE
 
-            new_openness = cur_ik.gripper_openness + gripper_rate * dt_ctrl
-            cur_ik.set_gripper(new_openness)
+                new_target = cur_ik.ee_target + np.array([vx, vy, vz]) * dt_ctrl
+                cur_ik.set_ee_target(new_target)
 
-            # wrist_roll / pitch driven as direct joint offsets (not through IK nullspace)
-            roll_idx = 4  # wrist_roll is index 4 in JOINT_SUFFIXES
-            pitch_idx = 3  # wrist_flex is index 3
-            qpos_adr = cur_ik.qpos_adr
-            data.qpos[qpos_adr[roll_idx]] += wrist_roll_rate * dt_ctrl
-            data.qpos[qpos_adr[roll_idx]] = np.clip(
-                data.qpos[qpos_adr[roll_idx]], *cur_ik.jnt_range[roll_idx])
-            data.qpos[qpos_adr[pitch_idx]] += pitch_rate * dt_ctrl
-            data.qpos[qpos_adr[pitch_idx]] = np.clip(
-                data.qpos[qpos_adr[pitch_idx]], *cur_ik.jnt_range[pitch_idx])
+                new_openness = cur_ik.gripper_openness + gripper_rate * dt_ctrl
+                cur_ik.set_gripper(new_openness)
+
+                # wrist_roll / pitch driven as direct joint offsets (not through IK nullspace)
+                roll_idx = 4  # wrist_roll is index 4 in JOINT_SUFFIXES
+                pitch_idx = 3  # wrist_flex is index 3
+                qpos_adr = cur_ik.qpos_adr
+                data.qpos[qpos_adr[roll_idx]] += wrist_roll_rate * dt_ctrl
+                data.qpos[qpos_adr[roll_idx]] = np.clip(
+                    data.qpos[qpos_adr[roll_idx]], *cur_ik.jnt_range[roll_idx])
+                data.qpos[qpos_adr[pitch_idx]] += pitch_rate * dt_ctrl
+                data.qpos[qpos_adr[pitch_idx]] = np.clip(
+                    data.qpos[qpos_adr[pitch_idx]], *cur_ik.jnt_range[pitch_idx])
 
             for a in ik_by_arm.values():
                 a.solve_step()
-            # override roll/pitch ctrl to match manually-adjusted qpos targets
-            data.ctrl[cur_ik.actuator_ids[roll_idx]] = data.qpos[qpos_adr[roll_idx]]
-            data.ctrl[cur_ik.actuator_ids[pitch_idx]] = data.qpos[qpos_adr[pitch_idx]]
+            # keep roll/pitch ctrl pinned to the manually-adjusted qpos targets
+            # (also prevents nullspace drift while e-stopped)
+            qpos_adr = cur_ik.qpos_adr
+            data.ctrl[cur_ik.actuator_ids[4]] = data.qpos[qpos_adr[4]]
+            data.ctrl[cur_ik.actuator_ids[3]] = data.qpos[qpos_adr[3]]
 
             # mirror the active arm's joint targets to a real follower (sim + real together)
             if mirror is not None:
@@ -317,9 +644,18 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
                 if not viewer.is_running():
                     running = False
 
+            if time.time() >= next_status:
+                next_status += 1.0
+                held = [n for n in ("ps", "l1", "r1") if st.buttons.get(n)]
+                print(f"[{time.strftime('%H:%M:%S')}] arm={active_arm} "
+                      f"ee_err={cur_ik.ee_error()*100:.2f}cm "
+                      f"grip={cur_ik.gripper_openness:.2f} "
+                      f"{'ESTOP ' if estop else ''}{','.join(held)}")
+
             elapsed = time.time() - t0
             time.sleep(max(0.0, dt_ctrl - elapsed))
     finally:
+        freeze_and_settle("shutdown")
         if mirror is not None:
             try:
                 mirror.robot.disconnect()
@@ -347,7 +683,9 @@ def main():
     parser = argparse.ArgumentParser(description="Gamepad Cartesian IK teleop for SO-101")
     parser.add_argument("--env", choices=["single", "dual"], default="single")
     parser.add_argument("--arm", choices=["left", "right"], default="left",
-                         help="Initial active arm (dual env only)")
+                         help="Initial active arm (dual env only). NOTE: 'both' is "
+                              "deliberately unsupported -- one DS4 has 4 stick DoF, "
+                              "two simultaneous XY+Z streams need 6; use Share to toggle.")
     parser.add_argument("--device", type=int, default=0, help="pygame joystick index")
     parser.add_argument("--dry-run", action="store_true",
                          help="Run headless IK loop with a scripted circular target, 100 steps")

@@ -79,6 +79,6 @@ mkdir -p logs runs
 echo "[run.sh] ${CONT_NAME}: ${TRAIN_ARGS[*]} ${EXTRA[*]:+${EXTRA[*]}}"
 exec docker run --gpus all --rm --env-file "$ENV_FILE" \
     "${NET_ARGS[@]}" "${MOUNT_ARGS[@]}" "${SOURCE_ARGS[@]}" \
-    -e SO101_GIT_BRANCH="$BRANCH" \
+    -e SO101_GIT_BRANCH="$BRANCH" -e MUJOCO_GL=egl \
     --name "$CONT_NAME" \
     "$IMAGE" "${TRAIN_ARGS[@]}" ${EXTRA[@]+"${EXTRA[@]}"}
