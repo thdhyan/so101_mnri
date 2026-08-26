@@ -25,6 +25,9 @@ From: nvcr.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04
     docker/entrypoint.sh /usr/local/bin/so101-entrypoint.sh
 
 %post
+    # proot builds inherit the invoking user's HOME, which does not exist
+    # inside the container — pin it so git/pip never write to a missing path
+    export HOME=/root
     export DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC \
            OMNI_KIT_ACCEPT_EULA=YES ACCEPT_EULA=Y PIP_BREAK_SYSTEM_PACKAGES=1
 
@@ -39,7 +42,7 @@ From: nvcr.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3.12 /usr/local/bin/python3 \
     && ln -sf /usr/bin/python3.12 /usr/local/bin/python \
-    && git lfs install
+    && (git lfs install || echo "git lfs install skipped (non-fatal)")
 
     # torch -> isaacsim -> isaaclab (order matters)
     python3 -m pip install --no-cache-dir "torch==2.11.0" \
