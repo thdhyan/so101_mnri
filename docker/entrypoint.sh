@@ -79,13 +79,19 @@ fi
 # ------------------------------------------------- workspace packages -------
 PY="$(cat /etc/so101_python 2>/dev/null || echo python3)"
 echo "[so101-entrypoint] python: ${PY}"
-# custom skrl fork — editable, ONE -e per pip command (see skill pitfalls)
-$PY -m pip install --no-cache-dir -q -e third_party/skrl
+# custom skrl fork — editable install preferred; on read-only rootfs (apptainer
+# non-fakeroot) fall back to PYTHONPATH (skrl is pure-python, paths via __file__)
+if ! $PY -m pip install --no-cache-dir -q -e third_party/skrl 2>/dev/null; then
+    echo "[so101-entrypoint] pip -e failed (read-only rootfs?) — PYTHONPATH fallback"
+    export PYTHONPATH="${SO101_WORKDIR}/third_party/skrl:${PYTHONPATH:-}"
+fi
 $PY -c "import skrl; print('[so101-entrypoint] custom skrl OK:', skrl.__version__, 'from', skrl.__file__)"
 if [ "${SO101_INSTALL_MJLAB:-0}" = "1" ]; then
-    $PY -m pip install --no-cache-dir -q -e third_party/mjlab
+    if ! $PY -m pip install --no-cache-dir -q -e third_party/mjlab 2>/dev/null; then
+        export PYTHONPATH="${SO101_WORKDIR}/third_party/mjlab/src:${PYTHONPATH:-}"
+    fi
     # mjlab's deps may upgrade mujoco-warp past the known-good pin — re-pin
-    $PY -m pip install --no-cache-dir -q "mujoco-warp==3.10.0.1"
+    $PY -m pip install --no-cache-dir -q "mujoco-warp==3.10.0.1" 2>/dev/null || true
     $PY -c "import mjlab; print('[so101-entrypoint] mjlab OK')"
 fi
 

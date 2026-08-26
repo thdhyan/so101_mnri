@@ -66,17 +66,21 @@ From: nvcr.io/nvidia/cuda:12.8.1-runtime-ubuntu24.04
         print('base stack OK:', md.version('isaaclab'), torch.__version__)"
 
     echo "python3" > /etc/so101_python
-    chmod +x /usr/local/bin/so101-entrypoint.sh
+    # proot mangles %files perms (observed rwx--x--x → unreadable by runtime
+    # user) — normalize explicitly
+    chmod 0755 /usr/local/bin/so101-entrypoint.sh || true
 
 %environment
     export OMNI_KIT_ACCEPT_EULA=YES
+    export PIP_BREAK_SYSTEM_PACKAGES=1
     export SO101_WORKDIR=/tmp/so101_mnri
     export SO101_MOUNT_DIR=/workspace/mounts
     export SO101_REPO_URL=https://github.com/thdhyan/so101_mnri
     export SO101_GIT_BRANCH=feature/mjlab
 
 %runscript
-    exec /usr/local/bin/so101-entrypoint.sh "$@"
+    # bash-invoked: immune to lost exec/read bits on the entrypoint file
+    exec /bin/bash /usr/local/bin/so101-entrypoint.sh "$@"
 
 %test
     PY="$(cat /etc/so101_python)"
