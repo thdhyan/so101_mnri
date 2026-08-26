@@ -282,8 +282,21 @@ class DS4Gamepad:
         )
 
 
-def print_mapping_table():
-    print("""DS4 mapping:
+def print_mapping_table(arm_mode="single"):
+    if arm_mode == "both":
+        print("""DS4 dual-arm mapping (--arm both):
+  right stick X/Y ... RIGHT arm EE x/y vel
+  left stick X/Y .... LEFT arm EE x/y vel
+  R1 held ........... RIGHT arm +Z vel    R2 held .......... RIGHT arm -Z vel
+  L1 held ........... LEFT arm +Z vel     L2 held ......... LEFT arm -Z vel
+  CIRCLE (hold) ..... RIGHT gripper CLOSE  CROSS (hold) .... RIGHT gripper OPEN
+  TRIANGLE (hold) ... LEFT gripper CLOSE   SQUARE (hold) ... LEFT gripper OPEN
+  OPTIONS ........... re-center BOTH IK targets to current EE pose
+  PS ................ E-STOP BOTH arms (freeze + neutral gripper; Options resumes)
+  SHARE ............ quit (freeze + neutral gripper + settle)
+  viewer ............ red sphere = RIGHT arm target, blue sphere = LEFT arm target""")
+    else:
+        print("""DS4 single-arm mapping:
   left stick X/Y .... EE x/y vel      right stick Y ..... EE z vel
   right stick X ..... DEAD           L2 / R2 ........... DEAD
   CIRCLE (hold) ..... gripper CLOSE  CROSS (hold) ...... gripper OPEN  (1.5 rad/s)
@@ -291,7 +304,7 @@ def print_mapping_table():
                       then IK target re-centers at home EE pose
                       (e-stop or stick deflection cancels mid-ramp)
   OPTIONS ........... re-center IK target to current EE pose (safety)
-  SHARE ............. toggle active arm (dual env)
+  SHARE ............. toggle active arm (dual env, single-arm mode)
   PS ................ E-STOP latch (freeze + neutral gripper; Options resumes;
                       cancels homing)
   SQUARE ............ safe quit (freeze + neutral gripper + settle)
@@ -612,10 +625,46 @@ def mock_button_test(env, arm="left", steps=100):
 
 def run_dry_run(env, arm, steps=100):
     self_test_pad_math()
+
+    both_mode = (arm == "both" and env == "dual")
+    dt_ctrl = 1.0 / CONTROL_HZ
+
+    if both_mode:
+        # Build IK for both arms simultaneously
+        _, _, ik_r = build_ik(env, "right")
+        _, _, ik_l = build_ik(env, "left")
+        center_r = ik_r._current_ee_pos().copy()
+        center_l = ik_l._current_ee_pos().copy()
+        radius = 0.03  # smaller than single-arm (5cm) to stay in both workspaces
+        substeps = max(1, int(round(dt_ctrl / mujoco.MjModel.from_xml_path(
+            scene_path(env)).opt.timestep)))
+        for i in range(steps):
+            theta = 2 * np.pi * i / steps
+            # Both arms trace independent circles
+            ik_r.set_ee_target(center_r + np.array([
+                radius * np.cos(theta), radius * np.sin(theta), 0.0]))
+            ik_r.set_gripper(0.5 * (1 + np.sin(theta)))
+            ik_l.set_ee_target(center_l + np.array([
+                radius * np.cos(theta + np.pi),  # offset phase
+                radius * np.sin(theta + np.pi), 0.0]))
+            ik_l.set_gripper(0.5 * (1 - np.sin(theta)))
+            ik_r.solve_step()
+            ik_l.solve_step()
+            for _ in range(substeps):
+                mujoco.mj_step(ik_r.model, ik_r.data)
+        err_r = ik_r.ee_error()
+        err_l = ik_l.ee_error()
+        print(f"[dry-run] dual-arm both: R err={err_r*100:.3f}cm  L err={err_l*100:.3f}cm")
+        if max(err_r, err_l) > 0.05:
+            print("[dry-run] WARNING: error exceeds 5 cm threshold")
+            sys.exit(1)
+        probe_gamepad()
+        print("[dry-run] OK")
+        return
+
     model, data, ik = build_ik(env, arm)
     center = ik._current_ee_pos().copy()
     radius = 0.05
-    dt_ctrl = 1.0 / CONTROL_HZ
     substeps = max(1, int(round(dt_ctrl / model.opt.timestep)))
 
     for i in range(steps):
@@ -646,6 +695,11 @@ def run_dry_run(env, arm, steps=100):
     print("[dry-run] OK")
 
 
+def _trigger_to_button(raw_value):
+    """Convert analog trigger [0,1] to a boolean (pressed if > 0.3)."""
+    return raw_value > 0.3
+
+
 def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None,
                 pad=None, tick_hook=None):
     import pygame
@@ -653,7 +707,8 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None,
     pygame.init()
     model, data, ik = build_ik(env, arm)
 
-    active_arm = arm  # only meaningful for dual; toggled via Share
+    both_mode = (arm == "both" and env == "dual")
+    active_arm = "left" if both_mode else arm  # Share toggles in single mode
     ik_by_arm = {arm: ik}
     if env == "dual":
         other = "right" if arm == "left" else "left"
@@ -674,7 +729,7 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None,
         print(NO_GAMEPAD_HELP)
         sys.exit(1)
     print(f"Using gamepad: {pad.name} [{pad.mode}]")
-    print_mapping_table()
+    print_mapping_table("both" if both_mode else "single")
 
     dt_ctrl = 1.0 / CONTROL_HZ
     substeps = max(1, int(round(dt_ctrl / model.opt.timestep)))
@@ -692,16 +747,15 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None,
 
     viewer = None
     if not no_viewer:
-        # NOTE: must use the "as" form -- plain `import mujoco.viewer` would
-        # bind `mujoco` as a function-local name and break earlier uses.
         import mujoco.viewer as mujoco_viewer
         viewer = mujoco_viewer.launch_passive(model, data)
 
     prev_buttons = {}
     estop = False
-    homing = False          # safe-home ramp in progress (active arm)
+    homing = False
     homing_t0 = 0.0
     homing_start_q = None
+    homing_arm = None  # which arm is homing (single mode only)
     running = True
     next_status = time.time()
 
@@ -726,130 +780,201 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None,
                 edges[name] = now and not was
                 prev_buttons[name] = now
 
-            if edges.get("square"):
-                running = False
-                break
-
+            # --- PS: e-stop (both modes) ---
             if edges.get("ps"):
                 estop = not estop
-                if estop and homing:
-                    homing = False  # e-stop interrupts the safe-home ramp
+                if estop:
+                    homing = False
                 print(f"[ESTOP] {'LATCHED' if estop else 'released'} "
                       f"(freeze + neutral gripper; OPTIONS re-centers and resumes)")
 
+            # --- Options: re-center (both modes) ---
             if edges.get("options"):
                 for a in ik_by_arm.values():
                     a.recenter_target()
                 estop = False
                 print("[recenter] IK target snapped to current EE pose")
 
-            if env == "dual" and edges.get("share"):
-                active_arm = "right" if active_arm == "left" else "left"
-                homing = False  # ramp state belongs to the previous arm
-                print(f"Active arm -> {active_arm}")
+            if both_mode:
+                # ===== DUAL-ARM MODE: both arms move simultaneously =====
+                # Share = quit in dual mode (no safe-home; Share unused otherwise)
+                if edges.get("share"):
+                    running = False
+                    break
 
-            cur_ik = ik_by_arm[active_arm]
+                right_ik = ik_by_arm["right"]
+                left_ik = ik_by_arm["left"]
 
-            # safe-home trigger: rising edge on L1 OR R1
-            if (edges.get("l1") or edges.get("r1")):
                 if estop:
-                    print("[safe-home] ignored while e-stopped (OPTIONS resumes first)")
-                elif not homing:
-                    homing = True
-                    homing_t0 = time.time()
-                    homing_start_q = cur_ik._current_qpos().copy()
-                    print(f"[safe-home] ramping all joints to HOME_POSE "
-                          f"(~{HOMING_DURATION:.1f} s); stick deflection or PS cancels")
-
-            if homing and not estop:
-                # interruptible: any stick deflection beyond deadzone aborts
-                if st.left_stick.any() or abs(st.right_stick[1]) > 0.0:
-                    homing = False
-                    cur_ik.recenter_target()
-                    print("[safe-home] cancelled by stick input; target re-centered")
+                    for a in ik_by_arm.values():
+                        a.set_ee_target(a._current_ee_pos())
+                        a.set_gripper(NEUTRAL_GRIPPER)
                 else:
-                    alpha = min((time.time() - homing_t0) / HOMING_DURATION, 1.0)
-                    target_q = homing_start_q + (HOME_POSE - homing_start_q) * alpha
-                    target_q = np.clip(target_q, cur_ik.jnt_range[:, 0], cur_ik.jnt_range[:, 1])
-                    data.ctrl[cur_ik.actuator_ids] = np.clip(
-                        target_q, cur_ik.ctrl_range[:, 0], cur_ik.ctrl_range[:, 1])
-                    # keep the IK target glued to the EE so the debug sphere
-                    # tracks the arm throughout the ramp
-                    cur_ik.set_ee_target(cur_ik._current_ee_pos())
-                    if alpha >= 1.0:
+                    # Right arm: right stick XY, R1=+Z, R2=-Z
+                    rx, ry = st.right_stick
+                    r_vx = -ry * LINEAR_SCALE
+                    r_vy = -rx * LINEAR_SCALE
+                    r_up = _trigger_to_button(st.r2) if st.buttons.get("r1", False) else 0.0
+                    r_dn = _trigger_to_button(st.r2) if st.buttons.get("r2", False) else 0.0
+                    # Actually: R1 = shoulder button (digital), R2 = trigger (analog)
+                    # User wants R1 = +Z, R2 = -Z
+                    r_vz = (float(st.buttons.get("r1", False))
+                            - float(st.buttons.get("r2", False))) * LINEAR_SCALE
+                    right_ik.set_ee_target(
+                        right_ik.ee_target + np.array([r_vx, r_vy, r_vz]) * dt_ctrl)
+
+                    # Left arm: left stick XY, L1=+Z, L2=-Z
+                    lx, ly = st.left_stick
+                    l_vx = -ly * LINEAR_SCALE
+                    l_vy = -lx * LINEAR_SCALE
+                    l_vz = (float(st.buttons.get("l1", False))
+                            - float(st.buttons.get("l2", False))) * LINEAR_SCALE
+                    left_ik.set_ee_target(
+                        left_ik.ee_target + np.array([l_vx, l_vy, l_vz]) * dt_ctrl)
+
+                    # Grippers: Circle/Cross = right, Triangle/Square = left
+                    r_lo, r_hi = right_ik.jnt_range[right_ik._gripper_local_idx]
+                    r_grip = (float(st.buttons.get("cross", False))
+                              - float(st.buttons.get("circle", False))) * GRIPPER_SCALE
+                    right_ik.set_gripper(
+                        right_ik.gripper_openness + r_grip * dt_ctrl / max(r_hi - r_lo, 1e-9))
+
+                    l_lo, l_hi = left_ik.jnt_range[left_ik._gripper_local_idx]
+                    l_grip = (float(st.buttons.get("square", False))
+                              - float(st.buttons.get("triangle", False))) * GRIPPER_SCALE
+                    left_ik.set_gripper(
+                        left_ik.gripper_openness + l_grip * dt_ctrl / max(l_hi - l_lo, 1e-9))
+
+                for a in ik_by_arm.values():
+                    a.solve_step()
+                # pin wrists for both arms
+                for a in ik_by_arm.values():
+                    data.ctrl[a.actuator_ids[4]] = data.qpos[a.qpos_adr[4]]
+                    data.ctrl[a.actuator_ids[3]] = data.qpos[a.qpos_adr[3]]
+
+            else:
+                # ===== SINGLE-ARM MODE: Share toggles which arm moves =====
+                if env == "dual" and edges.get("share"):
+                    active_arm = "right" if active_arm == "left" else "left"
+                    homing = False
+                    print(f"Active arm -> {active_arm}")
+
+                cur_ik = ik_by_arm[active_arm]
+
+                # safe-home trigger: rising edge on L1 OR R1 (single mode only)
+                if (edges.get("l1") or edges.get("r1")):
+                    if estop:
+                        print("[safe-home] ignored while e-stopped (OPTIONS resumes first)")
+                    elif not homing:
+                        homing = True
+                        homing_t0 = time.time()
+                        homing_start_q = cur_ik._current_qpos().copy()
+                        homing_arm = active_arm
+                        print(f"[safe-home] ramping all joints to HOME_POSE "
+                              f"(~{HOMING_DURATION:.1f} s); stick deflection or PS cancels")
+
+                if homing and not estop:
+                    if st.left_stick.any() or abs(st.right_stick[1]) > 0.0:
                         homing = False
                         cur_ik.recenter_target()
-                        print("[safe-home] reached HOME_POSE; IK target re-centered")
-            elif estop:
+                        print("[safe-home] cancelled by stick input; target re-centered")
+                    else:
+                        alpha = min((time.time() - homing_t0) / HOMING_DURATION, 1.0)
+                        target_q = homing_start_q + (HOME_POSE - homing_start_q) * alpha
+                        target_q = np.clip(target_q, cur_ik.jnt_range[:, 0], cur_ik.jnt_range[:, 1])
+                        data.ctrl[cur_ik.actuator_ids] = np.clip(
+                            target_q, cur_ik.ctrl_range[:, 0], cur_ik.ctrl_range[:, 1])
+                        cur_ik.set_ee_target(cur_ik._current_ee_pos())
+                        if alpha >= 1.0:
+                            homing = False
+                            cur_ik.recenter_target()
+                            print("[safe-home] reached HOME_POSE; IK target re-centered")
+                elif estop:
+                    for a in ik_by_arm.values():
+                        a.set_ee_target(a._current_ee_pos())
+                        a.set_gripper(NEUTRAL_GRIPPER)
+                else:
+                    lx, ly = st.left_stick
+                    _, ry = st.right_stick
+
+                    vx = -ly * LINEAR_SCALE
+                    vy = -lx * LINEAR_SCALE
+                    vz = -ry * LINEAR_SCALE
+
+                    new_target = cur_ik.ee_target + np.array([vx, vy, vz]) * dt_ctrl
+                    cur_ik.set_ee_target(new_target)
+
+                    lo, hi = cur_ik.jnt_range[cur_ik._gripper_local_idx]
+                    grip_rate = (float(st.buttons.get("cross", False))
+                                 - float(st.buttons.get("circle", False))) * GRIPPER_SCALE
+                    d_openness = grip_rate * dt_ctrl / max(hi - lo, 1e-9)
+                    cur_ik.set_gripper(cur_ik.gripper_openness + d_openness)
+
                 for a in ik_by_arm.values():
-                    a.set_ee_target(a._current_ee_pos())
-                    a.set_gripper(NEUTRAL_GRIPPER)
-            else:
-                lx, ly = st.left_stick
-                _, ry = st.right_stick  # right-stick X is DEAD (wrist roll removed)
+                    if homing and a is cur_ik:
+                        continue
+                    a.solve_step()
+                if not homing:
+                    qpos_adr = cur_ik.qpos_adr
+                    data.ctrl[cur_ik.actuator_ids[4]] = data.qpos[qpos_adr[4]]
+                    data.ctrl[cur_ik.actuator_ids[3]] = data.qpos[qpos_adr[3]]
 
-                vx = -ly * LINEAR_SCALE
-                vy = -lx * LINEAR_SCALE
-                vz = -ry * LINEAR_SCALE
-
-                new_target = cur_ik.ee_target + np.array([vx, vy, vz]) * dt_ctrl
-                cur_ik.set_ee_target(new_target)
-
-                # Cross held opens, Circle held closes, at GRIPPER_SCALE rad/s
-                # (converted to the normalized openness the IK layer uses)
-                lo, hi = cur_ik.jnt_range[cur_ik._gripper_local_idx]
-                grip_rate = (float(st.buttons.get("cross", False))
-                             - float(st.buttons.get("circle", False))) * GRIPPER_SCALE
-                d_openness = grip_rate * dt_ctrl / max(hi - lo, 1e-9)
-                cur_ik.set_gripper(cur_ik.gripper_openness + d_openness)
-
-            for a in ik_by_arm.values():
-                if homing and a is cur_ik:
-                    continue  # ctrl is driven directly by the ramp this tick
-                a.solve_step()
-            # wrist_flex / wrist_roll now have no live input channel (right-X
-            # and L1/R1 pitch removed); pin their ctrl to the current qpos so
-            # IK nullspace/home bias cannot drift them (also while e-stopped).
-            # Skipped during homing, which writes all six ctrls itself.
-            if not homing:
-                qpos_adr = cur_ik.qpos_adr
-                data.ctrl[cur_ik.actuator_ids[4]] = data.qpos[qpos_adr[4]]
-                data.ctrl[cur_ik.actuator_ids[3]] = data.qpos[qpos_adr[3]]
-
-            # mirror the active arm's joint targets to a real follower (sim + real together)
+            # mirror to real follower (single arm only)
             if mirror is not None:
+                mir_ik = ik_by_arm[active_arm] if not both_mode else ik_by_arm["right"]
                 mirror.send({
                     f"{name}.pos": math.degrees(float(data.ctrl[aid]))
-                    for name, aid in zip(JOINT_SUFFIXES, cur_ik.actuator_ids)
+                    for name, aid in zip(JOINT_SUFFIXES, mir_ik.actuator_ids)
                 })
 
             for _ in range(substeps):
                 mujoco.mj_step(model, data)
 
             if tick_hook is not None:
-                tick_hook({
-                    "active": active_arm, "estop": estop, "homing": homing,
-                    "grip": cur_ik.gripper_openness,
-                    "ee": cur_ik.ee_target.copy(),
-                    "qpos": data.qpos[cur_ik.qpos_adr].copy(),
-                    "ctrl": data.ctrl[cur_ik.actuator_ids].copy(),
-                    "ee_err": cur_ik.ee_error(),
-                })
+                hook_data = {"estop": estop, "homing": homing}
+                if both_mode:
+                    hook_data["right_ee"] = ik_by_arm["right"].ee_target.copy()
+                    hook_data["left_ee"] = ik_by_arm["left"].ee_target.copy()
+                    hook_data["right_grip"] = ik_by_arm["right"].gripper_openness
+                    hook_data["left_grip"] = ik_by_arm["left"].gripper_openness
+                else:
+                    hook_data["active"] = active_arm
+                    cur = ik_by_arm[active_arm]
+                    hook_data["grip"] = cur.gripper_openness
+                    hook_data["ee"] = cur.ee_target.copy()
+                    hook_data["qpos"] = data.qpos[cur.qpos_adr].copy()
+                    hook_data["ctrl"] = data.ctrl[cur.actuator_ids].copy()
+                    hook_data["ee_err"] = cur.ee_error()
+                tick_hook(hook_data)
 
             if viewer is not None:
-                _draw_target_marker(viewer, cur_ik.ee_target)
+                if both_mode:
+                    _draw_dual_markers(viewer,
+                                       ik_by_arm["right"].ee_target,
+                                       ik_by_arm["left"].ee_target)
+                else:
+                    _draw_target_marker(viewer, ik_by_arm[active_arm].ee_target)
                 viewer.sync()
                 if not viewer.is_running():
                     running = False
 
             if time.time() >= next_status:
                 next_status += 1.0
-                held = [n for n in ("ps", "l1", "r1") if st.buttons.get(n)]
-                print(f"[{time.strftime('%H:%M:%S')}] arm={active_arm} "
-                      f"ee_err={cur_ik.ee_error()*100:.2f}cm "
-                      f"grip={cur_ik.gripper_openness:.2f} "
-                      f"{'ESTOP ' if estop else ''}{'HOMING ' if homing else ''}"
-                      f"{','.join(held)}")
+                if both_mode:
+                    re = ik_by_arm["right"].ee_error()
+                    le = ik_by_arm["left"].ee_error()
+                    print(f"[{time.strftime('%H:%M:%S')}] "
+                          f"R: ee_err={re*100:.2f}cm grip={ik_by_arm['right'].gripper_openness:.2f} "
+                          f"L: ee_err={le*100:.2f}cm grip={ik_by_arm['left'].gripper_openness:.2f} "
+                          f"{'ESTOP' if estop else ''}")
+                else:
+                    cur = ik_by_arm[active_arm]
+                    held = [n for n in ("ps", "l1", "r1") if st.buttons.get(n)]
+                    print(f"[{time.strftime('%H:%M:%S')}] arm={active_arm} "
+                          f"ee_err={cur.ee_error()*100:.2f}cm "
+                          f"grip={cur.gripper_openness:.2f} "
+                          f"{'ESTOP ' if estop else ''}{'HOMING ' if homing else ''}"
+                          f"{','.join(held)}")
 
             elapsed = time.time() - t0
             time.sleep(max(0.0, dt_ctrl - elapsed))
@@ -880,13 +1005,36 @@ def _draw_target_marker(viewer, pos):
     scn.ngeom = 1
 
 
+def _draw_dual_markers(viewer, right_pos, left_pos):
+    """Two debug spheres: red = right arm target, blue = left arm target."""
+    scn = viewer.user_scn
+    scn.ngeom = 0
+    mujoco.mjv_initGeom(
+        scn.geoms[0],
+        type=mujoco.mjtGeom.mjGEOM_SPHERE,
+        size=[0.012, 0, 0],
+        pos=np.asarray(right_pos, dtype=float),
+        mat=np.eye(3).flatten(),
+        rgba=np.array([1.0, 0.15, 0.15, 0.6], dtype=float),  # red
+    )
+    mujoco.mjv_initGeom(
+        scn.geoms[1],
+        type=mujoco.mjtGeom.mjGEOM_SPHERE,
+        size=[0.012, 0, 0],
+        pos=np.asarray(left_pos, dtype=float),
+        mat=np.eye(3).flatten(),
+        rgba=np.array([0.15, 0.4, 1.0, 0.6], dtype=float),  # blue
+    )
+    scn.ngeom = 2
+
+
 def main():
     parser = argparse.ArgumentParser(description="Gamepad Cartesian IK teleop for SO-101")
     parser.add_argument("--env", choices=["single", "dual"], default="single")
-    parser.add_argument("--arm", choices=["left", "right"], default="left",
-                         help="Initial active arm (dual env only). NOTE: 'both' is "
-                              "deliberately unsupported -- one DS4 has 4 stick DoF, "
-                              "two simultaneous XY+Z streams need 6; use Share to toggle.")
+    parser.add_argument("--arm", choices=["left", "right", "both"], default="left",
+                         help="Initial active arm (dual env only). 'both' drives "
+                              "both arms simultaneously: right stick XY = right arm, "
+                              "left stick XY = left arm, R1/R2 = right Z, L1/L2 = left Z.")
     parser.add_argument("--device", type=int, default=0, help="pygame joystick index")
     parser.add_argument("--dry-run", action="store_true",
                          help="Run headless IK loop with a scripted circular target, 100 steps")
@@ -896,6 +1044,9 @@ def main():
                               "(sim + real move together; needs lerobot calibration for the follower)")
     parser.add_argument("--real-follower-id", default=None, help="LeRobot calibration id for the follower")
     args = parser.parse_args()
+
+    if args.arm == "both" and args.env != "dual":
+        parser.error("--arm both requires --env dual")
 
     arm = args.arm if args.env == "dual" else None
 

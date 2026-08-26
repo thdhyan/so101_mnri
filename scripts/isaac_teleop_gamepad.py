@@ -108,16 +108,21 @@ class Cmd:
 class DS4Device:
     """pygame DualShock 4 reader producing per-tick velocity commands.
 
-    Mapping: left stick = EE x/y, right stick Y = EE z (right stick X dead),
+    Mapping (single-arm): left stick = EE x/y, right stick Y = EE z (right stick X dead),
     Circle/Cross held = gripper close/open at GRIP_RATE, L1/R1 press =
     safe-home ramp, Share toggles the active arm (dual), Options re-centers
     the EE target, PS quits with a home ramp. L2/R2 are dead.
+
+    Mapping (both-mode): right stick XY = right arm, left stick XY = left arm,
+    R1/R2 = right arm Z, L1/L2 = left arm Z, Circle/Cross = right gripper,
+    Triangle/Square = left gripper, PS = e-stop both, Share = quit.
     """
 
-    def __init__(self, index=0, pos_sensitivity=1.0):
+    def __init__(self, index=0, pos_sensitivity=1.0, both_mode=False):
         import pygame
 
         self._pos_scale = LINEAR_SCALE * pos_sensitivity
+        self._both = both_mode
         pygame.init()
         pygame.joystick.init()
         if pygame.joystick.get_count() == 0:
@@ -127,7 +132,6 @@ class DS4Device:
         self._joy = pygame.joystick.Joystick(index)
         self._joy.init()
         self._prev_btns = {}
-        # Button layout depends on whether SDL applied a gamecontroller mapping.
         self._btn = _BUTTONS_RAW
         self._layout = "raw DS4"
         try:
@@ -142,14 +146,12 @@ class DS4Device:
               f"(axes={self._joy.get_numaxes()}, buttons={self._joy.get_numbuttons()}, "
               f"layout={self._layout})", flush=True)
 
-    def advance(self) -> Cmd:
+    def _read_axes_and_buttons(self):
+        """Read raw axes and button states from the joystick."""
         pygame = self._pygame
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                cmd = Cmd()
-                cmd.quit = True
-                return cmd
-
+                return None, None, None
         joy = self._joy
         lx_raw = joy.get_axis(AX_LX)
         ly_raw = joy.get_axis(AX_LY)
@@ -157,25 +159,80 @@ class DS4Device:
         ry_raw = joy.get_axis(AX_RY) if joy.get_numaxes() > AX_RY else 0.0
         lx = apply_deadzone(lx_raw)
         ly = apply_deadzone(ly_raw)
-        ry = apply_deadzone(ry_raw)  # rx intentionally unused: right stick X is DEAD
+        rx = apply_deadzone(rx_raw)
+        ry = apply_deadzone(ry_raw)
+
+        # L2/R2 triggers: raw DS4 rests at -1, SDL gamecontroller at 0
+        l2_raw = joy.get_axis(3) if joy.get_numaxes() > 3 else -1.0
+        r2_raw = joy.get_axis(4) if joy.get_numaxes() > 4 else -1.0
+        # Normalize: raw DS4 [-1,1] -> [0,1], SDL [0,1] already
+        l2_norm = (l2_raw + 1.0) / 2.0 if l2_raw < -0.5 else l2_raw
+        r2_norm = (r2_raw + 1.0) / 2.0 if r2_raw < -0.5 else r2_raw
 
         def btn(name):
             i = self._btn[name]
             return bool(joy.get_button(i)) if i < joy.get_numbuttons() else False
 
+        now = {n: btn(n) for n in ("share", "options", "ps", "l1", "r1",
+                                    "circle", "cross", "triangle", "square")}
+        now["l2"] = l2_norm > 0.3
+        now["r2"] = r2_norm > 0.3
+
+        return (lx, ly, rx, ry), now, True
+
+    def advance(self) -> Cmd:
+        if self._both:
+            return self._advance_both()
+        return self._advance_single()
+
+    def _advance_single(self) -> Cmd:
+        axes, now, ok = self._read_axes_and_buttons()
+        if not ok:
+            cmd = Cmd(); cmd.quit = True; return cmd
+        lx, ly, rx, ry = axes
+
         cmd = Cmd()
-        # MuJoCo-script sign conventions: stick up/left = negative axis value.
         cmd.dpos = [-ly * self._pos_scale, -lx * self._pos_scale, -ry * self._pos_scale]
-        cmd.grip_rate = (btn("circle") - btn("cross")) * GRIP_RATE  # close -, open +
-        now = {n: btn(n) for n in ("share", "options", "ps", "l1", "r1")}
+        cmd.grip_rate = (now["cross"] - now["circle"]) * GRIP_RATE
         cmd.toggle_arm = now["share"] and not self._prev_btns.get("share")
         cmd.recentre = now["options"] and not self._prev_btns.get("options")
         cmd.quit = now["ps"] and not self._prev_btns.get("ps")
         cmd.home = (now["l1"] or now["r1"]) and not (
             self._prev_btns.get("l1") or self._prev_btns.get("r1"))
-        cmd.stick_active = any(abs(a) > DEADZONE for a in (lx_raw, ly_raw, rx_raw, ry_raw))
+        cmd.stick_active = any(abs(a) > DEADZONE for a in axes)
         self._prev_btns = now
         return cmd
+
+    def _advance_both(self):
+        """Return a tuple of (right_cmd, left_cmd) for dual-arm mode."""
+        axes, now, ok = self._read_axes_and_buttons()
+        if not ok:
+            c = Cmd(); c.quit = True
+            return c, c
+        lx, ly, rx, ry = axes
+
+        # Right arm: right stick XY, R1=+Z, R2=-Z, Circle/Cross gripper
+        rc = Cmd()
+        rc.dpos = [-ry * self._pos_scale, -rx * self._pos_scale,
+                   (float(now["r1"]) - float(now["r2"])) * self._pos_scale]
+        rc.grip_rate = (now["cross"] - now["circle"]) * GRIP_RATE
+        rc.stick_active = any(abs(a) > DEADZONE for a in (rx, ry))
+
+        # Left arm: left stick XY, L1=+Z, L2=-Z, Triangle/Square gripper
+        lc = Cmd()
+        lc.dpos = [-ly * self._pos_scale, -lx * self._pos_scale,
+                   (float(now["l1"]) - float(now["l2"])) * self._pos_scale]
+        lc.grip_rate = (now["square"] - now["triangle"]) * GRIP_RATE
+        lc.stick_active = any(abs(a) > DEADZONE for a in (lx, ly))
+
+        # Shared controls
+        rc.recentre = now["options"] and not self._prev_btns.get("options")
+        lc.recentre = rc.recentre
+        rc.quit = now["share"] and not self._prev_btns.get("share")
+        lc.quit = rc.quit
+        # No safe-home or arm toggle in both mode
+        self._prev_btns = now
+        return rc, lc
 
     @staticmethod
     def reseed():
@@ -199,6 +256,8 @@ class NullDevice:
       press : single L1 press -> triggers the safe-home ramp
       wait  : zero commands while the run loop homes (until notify_homed())
       rx    : right stick X fully deflected -> must produce NO motion
+
+    When both_mode=True, advance() returns (right_cmd, left_cmd) tuple.
     """
 
     DT_MOCK = 1.0 / 60.0  # nominal dt for per-tick deltas (rate_mode=False)
@@ -207,7 +266,7 @@ class NullDevice:
     HOME_WAIT_CAP = 400
     RX_STEPS = 10
 
-    def __init__(self, radius=0.03, steps_per_rev=100):
+    def __init__(self, radius=0.03, steps_per_rev=100, both_mode=False):
         self.radius = radius
         self.steps_per_rev = steps_per_rev
         self.i = 0
@@ -216,9 +275,8 @@ class NullDevice:
         self._homed = False
         self._wait = 0
         self._rx = 0
-        self._n = 0  # ticks spent in current phase
-        # prev starts at ORIGIN so the first delta jumps out to T(0)=(r,0,0):
-        # the run then shows genuine convergence onto the moving circle
+        self._n = 0
+        self._both = both_mode
         self._prev_t = [0.0, 0.0, 0.0]
         self._prev_grip = 0.0
 
@@ -235,7 +293,7 @@ class NullDevice:
             self.phase = nxt
             self._n = 0
 
-    def advance(self) -> Cmd:
+    def advance(self):
         cmd = Cmd()
         cmd.rate_mode = False
         cmd.dpos = [0.0, 0.0, 0.0]
@@ -250,11 +308,11 @@ class NullDevice:
             self._end_phase(self.TRACK_STEPS, "close")
         elif p == "close":
             cmd.dpos = [0.0, 0.0, 0.0]
-            cmd.grip_rate = -GRIP_RATE * self.DT_MOCK  # Circle held -> CLOSE
+            cmd.grip_rate = -GRIP_RATE * self.DT_MOCK
             self._end_phase(self.GRIP_STEPS, "open")
         elif p == "open":
             cmd.dpos = [0.0, 0.0, 0.0]
-            cmd.grip_rate = GRIP_RATE * self.DT_MOCK   # Cross held -> OPEN
+            cmd.grip_rate = GRIP_RATE * self.DT_MOCK
             self._end_phase(self.GRIP_STEPS, "press")
         elif p == "press":
             cmd.home = True
@@ -270,6 +328,8 @@ class NullDevice:
             if self._rx >= self.RX_STEPS:
                 self.finished = True
         self.i += 1
+        if self._both:
+            return cmd, cmd
         return cmd
 
     def reseed(self):
@@ -500,6 +560,20 @@ def print_mapping():
     print("", flush=True)
 
 
+def print_mapping_both():
+    print("""\nDS4 dual-arm mapping (--arm both):
+  right stick X/Y ... RIGHT arm EE x/y vel
+  left stick X/Y .... LEFT arm EE x/y vel
+  R1 held ........... RIGHT arm +Z vel    R2 held .......... RIGHT arm -Z vel
+  L1 held ........... LEFT arm +Z vel     L2 held ......... LEFT arm -Z vel
+  CIRCLE (hold) ..... RIGHT gripper CLOSE  CROSS (hold) .... RIGHT gripper OPEN
+  TRIANGLE (hold) ... LEFT gripper CLOSE   SQUARE (hold) ... LEFT gripper OPEN
+  OPTIONS ........... re-center BOTH IK targets to current EE pose
+  PS ................ E-STOP BOTH arms (freeze + neutral gripper; Options resumes)
+  SHARE ............ quit (freeze + neutral gripper + settle)
+""", flush=True)
+
+
 def strip_cameras(scene_cfg):
     """Drop camera sensors from the scene cfg — state-based teleop never reads them.
 
@@ -572,19 +646,23 @@ def run(args, simulation_app):
             pts.append(pos_w[0].cpu())
         return torch.stack(pts)  # (M, 3) world
 
+    both_mode = (n_arms_task == 2 and args.arm == "both")
     if args.null_device:
-        device = NullDevice(radius=args.circle_radius)
+        device = NullDevice(radius=args.circle_radius, both_mode=both_mode)
         max_steps = args.steps if args.steps else (
             NullDevice.TRACK_STEPS + 2 * NullDevice.GRIP_STEPS + 1
             + NullDevice.HOME_WAIT_CAP + NullDevice.RX_STEPS + 1)
-        print(f"[null-device] task={args.task} arms={active} circle r={args.circle_radius} m "
-              f"for <= {max_steps} steps (incl. mock-button suite)", flush=True)
+        print(f"[null-device] task={args.task} arms={active} both={both_mode} "
+              f"circle r={args.circle_radius} m for <= {max_steps} steps", flush=True)
     else:
-        device = DS4Device(args.device, args.pos_sensitivity)
+        device = DS4Device(args.device, args.pos_sensitivity, both_mode=both_mode)
         max_steps = args.steps if args.steps else 10 ** 9
-        print_mapping()
-        print(f"[teleop] task={args.task} active={active} — PS quits (home ramp first)",
-              flush=True)
+        if both_mode:
+            print_mapping_both()
+        else:
+            print_mapping()
+        print(f"[teleop] task={args.task} active={active} both={both_mode} "
+              f"— PS quits (home ramp first)", flush=True)
 
     homing_on = False
     homing_start = 0
@@ -601,16 +679,17 @@ def run(args, simulation_app):
             mock_results[key] = (ok, msg)
             print(f"[mock-test] {'PASS' if ok else 'FAIL'} {key}: {msg}", flush=True)
 
-    def assemble_actions(cmd, dt):
+    def assemble_actions_per_arm(cmds, dt):
+        """cmds = dict {arm_name: Cmd} for both-mode, or {active[0]: single_cmd}."""
         act = torch.zeros(env.num_envs, 6 * n_arms, dtype=torch.float32)
         for slot, name in enumerate(arm_names_all):
             aik = controllers[name]
             if name in active:
+                arm_cmd = cmds.get(name, cmds.get(active[0]))
                 if aik.homing:
                     act[0, slot * 6:(slot + 1) * 6] = aik.home_step(dt)[0].cpu()
                 else:
-                    mirror_y = (n_arms == 2 and args.arm == "both" and name == "robot_right")
-                    aik.apply_command(cmd, mirror_y, dt)
+                    aik.apply_command(arm_cmd, False, dt)
                     act[0, slot * 6:(slot + 1) * 6] = aik.action_row(debug=args.debug and step < 4)[0].cpu()
             else:
                 act[0, slot * 6:(slot + 1) * 6] = aik.home_row
@@ -628,8 +707,18 @@ def run(args, simulation_app):
             dt = min(0.05, max(1e-3, time.time() - last_t))
             last_t = time.time()
 
-            cmd = device.advance()
-            if cmd.quit:
+            raw = device.advance()
+            if both_mode:
+                rc, lc = raw
+                cmds = {"robot_right": rc, "robot_left": lc}
+                quit_flag = rc.quit or lc.quit
+                recenter_flag = rc.recentre or lc.recentre
+            else:
+                quit_flag = raw.quit
+                recenter_flag = raw.recentre
+                cmds = {active[0]: raw}
+
+            if quit_flag:
                 quit_pending = True
                 if not homing_on:
                     for aik in controllers.values():
@@ -638,26 +727,25 @@ def run(args, simulation_app):
                     homing_start = step
                     print(f"[teleop] PS quit — ramping home first (~{HOME_RAMP_TIME:.1f} s)",
                           flush=True)
-            if cmd.recentre:
+            if recenter_flag:
                 for name in active:
                     controllers[name].seed_target()
                 print("[teleop] re-centered", flush=True)
-            if cmd.toggle_arm and n_arms == 2 and args.arm != "both":
+            if not both_mode and raw.toggle_arm and n_arms == 2 and args.arm != "both":
                 other = "robot_right" if active[0] == "robot_left" else "robot_left"
                 active = [other]
                 print(f"[teleop] active arm -> {'right' if other.endswith('right') else 'left'}",
                       flush=True)
-            if cmd.home and not homing_on and not quit_pending:
+            if not both_mode and raw.home and not homing_on and not quit_pending:
                 for aik in controllers.values():
                     aik.start_homing()
                 homing_on = True
                 homing_start = step
-                if args.null_device:
-                    mock_snap["home_marker_pos"] = markers.last_pos.clone() \
-                        if markers.last_pos is not None else None
                 print(f"[teleop] safe-home engaged (~{HOME_RAMP_TIME:.1f} s ramp; "
                       f"stick input cancels)", flush=True)
-            if homing_on and cmd.stick_active and not quit_pending:
+            if homing_on and not quit_pending and any(
+                (c.stick_active if not both_mode else False) for c in cmds.values()
+            ):
                 for aik in controllers.values():
                     if aik.homing:
                         aik.cancel_homing()
@@ -667,7 +755,7 @@ def run(args, simulation_app):
             if quit_pending and not homing_on:
                 break
 
-            actions = assemble_actions(cmd, dt)
+            actions = assemble_actions_per_arm(cmds, dt)
             obs, rew, term, trunc, _extras = env.step(actions)
             step += 1
 

@@ -463,6 +463,37 @@ def run_vr(args) -> int:
                     os.environ[k.strip()] = val[0] if val else ""
 
     bits = _import_isaacteleop_bits()  # fail fast, before Kit boots
+    from isaaclab.app import AppLauncher
+
+    # In headless mode, suppress XR display rendering to avoid GPU OOM from
+    # the 4096×3584 per-eye swapchain textures. Controller tracking still works.
+    if args.headless:
+        import os as _os
+        _os.environ["OMNI_KIT_HEADLESS"] = "1"
+
+    launcher = AppLauncher(headless=args.headless, xr=True)
+    simulation_app = launcher.app
+
+    # Disable XR display pipeline after Kit boots — this frees the GPU memory
+    # that would be used for stereo swapchain textures, while keeping the
+    # OpenXR session + controller tracking alive for isaacteleop.
+    if args.headless:
+        try:
+            import carb.settings
+            s = carb.settings.get_settings()
+            # Disable RTX rendering entirely (not needed for state-based teleop)
+            s.set("/app/renderer/enabled", False)
+            # Disable XR display composition (tracking still works)
+            s.set("/xr/profile/display/enabled", False)
+            # Reduce render resolution to minimum (fallback if display isn't fully disabled)
+            s.set("/app/renderer/resolution/width", 256)
+            s.set("/app/renderer/resolution/height", 256)
+            print("[vr] headless: disabled XR display pipeline (tracking-only mode)", flush=True)
+        except Exception as e:
+            print(f"[vr] warning: could not disable XR display ({e})", flush=True)
+
+    # isaaclab_teleop depends on 'carb' (Kit SDK) which is only available
+    # AFTER AppLauncher boots Kit — must import here, not before.
     try:
         from isaaclab_teleop import IsaacTeleopCfg
         from isaaclab_teleop.isaac_teleop_cfg import CLOUDXR_JS_ENV
@@ -474,10 +505,6 @@ def run_vr(args) -> int:
             "  pip install 'isaaclab-teleop' --extra-index-url https://pypi.nvidia.com\n"
             "  (it ships inside the isaaclab 3.0.0b2 wheel already present in this venv)"
         )
-    from isaaclab.app import AppLauncher
-
-    launcher = AppLauncher(headless=args.headless, xr=True)
-    simulation_app = launcher.app
     rc = 1
     try:
         import torch
