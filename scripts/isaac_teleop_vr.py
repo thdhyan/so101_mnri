@@ -25,17 +25,47 @@ Right-controller controls:
     grip (squeeze)  re-center the clutch origin (arm stays put)
     A button        toggle XR anchor rotation (built into IsaacTeleopDevice)
 
+IK / 3D coordinate tuning:
+    The VR controller pose IS the 3D EE target in robot-base frame.
+    --anchor-pos sets where the VR stage origin maps to in the world: tune this
+    to align controller movement with the arm's workspace.
+    --ik-lambda controls DLS damping (higher = smoother but less accurate).
+    Squeeze grip to re-clutch (reset controller origin without moving arm).
+
+Dual-arm VR:
+    Use task SO101-CylReach-Dual-v0 (or SO101-CylGrasp-Dual-v0).
+    Right controller -> right arm (env arm index 0).
+    Left  controller -> left  arm (env arm index 1).
+    Both arms get the same SO101ClutchRetargeter pipeline, each in their own
+    robot base frame.  Pass --task SO101-CylReach-Dual-v0 to enable.
+
+Real arm (USB follower):
+    Pass --follower-port /dev/ttyACM0 (and optionally --follower-id NAME).
+    Requires: lerobot installed, arm calibrated (lerobot-calibrate --robot.type=so101_follower).
+    Sim joints (rad) are forwarded to the real arm every step via FollowerSink,
+    with a per-tick clamp (--max-jump-rad, default 0.15 rad) for safety.
+    Ctrl-C ramps the real arm back to home and disables torque before exiting.
+
 Usage:
     # dry run: scripted controller trajectory through the real retargeting+IK
     # pipeline; headless GPU; no XR runtime / CloudXR / headset required
     OMNI_KIT_ACCEPT_EULA=YES python scripts/isaac_teleop_vr.py --null-device
 
-    # VR demo day (see VR_TELEOP_SETUP.md)
-    python -m isaacteleop.cloudxr --host-client       # terminal 1: runtime + web client
-    python scripts/isaac_teleop_vr.py --headless --cloudxr external   # terminal 2: Isaac
+    # VR sim-only (see VR_TELEOP_SETUP.md)
+    python -m isaacteleop.cloudxr --cloudxr-env-config ~/.cloudxr/quest3-lo.env --host-client
+    python scripts/isaac_teleop_vr.py --headless --cloudxr external
+
+    # VR + mirror to real arm
+    python scripts/isaac_teleop_vr.py --headless --cloudxr external \\
+        --follower-port /dev/ttyACM0 --follower-id my_arm
+
+    # Dual-arm VR (sim only)
+    python scripts/isaac_teleop_vr.py --headless --cloudxr external \\
+        --task SO101-CylReach-Dual-v0
 """
 
 import argparse
+import math
 import shlex
 import sys
 from dataclasses import dataclass
@@ -76,14 +106,113 @@ def parse_args():
                         help="auto: launch runtime+WSS from this script (default); external: "
                         "runtime started separately (python -m isaacteleop.cloudxr ...); "
                         "off: no CloudXR (drive Kit's XR panel manually)")
-    parser.add_argument("--anchor-pos", type=float, nargs=3, default=(0.35, 0.0, 0.95),
+    parser.add_argument("--anchor-pos", type=float, nargs=3, default=(0.9, 0.3, 1.0),
                         metavar=("X", "Y", "Z"),
-                        help="world point that appears at the headset origin (default in front of the arm)")
+                        help="world point shown at the headset tracking origin "
+                        "(default 0.9 0.3 1.0 = ~90cm in front of arm, 30cm to side, 1m up; "
+                        "tune X to step closer/further, Z for height, Y for side offset)")
     parser.add_argument("--gripper-open", type=float, default=GRIPPER_OPEN_RAD)
     parser.add_argument("--gripper-close", type=float, default=GRIPPER_CLOSE_RAD)
     parser.add_argument("--ik-lambda", type=float, default=0.05,
-                        help="damped-least-squares damping (default 0.05)")
+                        help="damped-least-squares damping (default 0.05; higher=smoother/less accurate)")
+    # Real arm (USB follower) — optional; requires lerobot + calibrated arm
+    parser.add_argument("--follower-port", type=str, default=None,
+                        metavar="PORT",
+                        help="serial port for real SO-101 follower arm (e.g. /dev/ttyACM0); "
+                        "omit to run sim-only")
+    parser.add_argument("--follower-id", type=str, default="so101_follower",
+                        metavar="ID",
+                        help="lerobot calibration ID for the follower arm (default: so101_follower)")
+    parser.add_argument("--max-jump-rad", type=float, default=0.15,
+                        help="per-tick joint clamp for real arm safety (default 0.15 rad ≈ 8.6°)")
+    parser.add_argument("--follower-torque-limit", type=float, default=None,
+                        metavar="PCT",
+                        help="Max_Torque_Limit %% written to all servos on connect (e.g. 60)")
+    parser.add_argument("--dry-run-follower", action="store_true",
+                        help="print follower commands but do not open the serial port")
     return parser.parse_args()
+
+
+##
+# Real arm sink — mirrors sim joint targets to a USB SO-101 follower arm via lerobot
+##
+
+_FOLLOWER_JOINTS = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
+
+
+class FollowerSink:
+    """Forward sim joint targets (rad) to a real SO-101 arm via lerobot.
+
+    Clamps per-tick jumps for safety. On close(), ramps smoothly back to home
+    and disables torque. Pass dry_run=True to print commands without touching HW.
+    """
+
+    def __init__(self, port: str, follower_id: str, max_jump_rad: float = 0.15,
+                 torque_limit_pct: float | None = None, dry_run: bool = False):
+        self._port = port
+        self._id = follower_id
+        self._max_jump = max_jump_rad
+        self._torque_limit = torque_limit_pct
+        self._dry_run = dry_run
+        self._last = None
+        self._tick = 0
+        self._robot = None
+
+    def connect(self) -> "FollowerSink":
+        if self._dry_run:
+            print(f"[follower][dry-run] would connect to {self._port} id={self._id}")
+            return self
+        from lerobot.robots.so_follower import SO101Follower
+        from lerobot.robots.so_follower.config_so_follower import SO101FollowerConfig
+        cfg = SO101FollowerConfig(
+            port=self._port,
+            id=self._id,
+            max_relative_target=math.degrees(self._max_jump),
+        )
+        self._robot = SO101Follower(cfg)
+        self._robot.connect()
+        if self._torque_limit is not None:
+            raw = int(round(self._torque_limit * 10))
+            for motor in self._robot.bus.motors:
+                self._robot.bus.write("Max_Torque_Limit", motor, raw)
+            print(f"[follower] Max_Torque_Limit = {self._torque_limit:.0f}% on all servos")
+        print(f"[follower] connected: {self._port} id={self._id}  clamp={self._max_jump:.3f} rad")
+        return self
+
+    def send(self, targets_rad) -> None:
+        import numpy as np
+        t = np.asarray(targets_rad, dtype=float).reshape(-1)[:6]
+        if self._last is not None:
+            t = self._last + np.clip(t - self._last, -self._max_jump, self._max_jump)
+        self._last = t.copy()
+        self._tick += 1
+        if self._dry_run:
+            print(f"[follower][dry-run][{self._tick:4d}] "
+                  + " ".join(f"{j}={v:+.3f}" for j, v in zip(_FOLLOWER_JOINTS, t)))
+            return
+        action = {f"{j}.pos": math.degrees(float(t[i])) for i, j in enumerate(_FOLLOWER_JOINTS)}
+        self._robot.send_action(action)
+
+    def close(self) -> None:
+        if self._robot is None:
+            return
+        import numpy as np
+        from scripts._env_utils import HOME_POSE  # noqa: local import
+        home = np.asarray(HOME_POSE, dtype=float)
+        start = self._last if self._last is not None else home
+        n = max(1, int(np.ceil(np.max(np.abs(home - start)) / self._max_jump)))
+        print(f"[follower] ramping to home in {n} steps …")
+        for k in range(1, n + 1):
+            self.send(start + (home - start) * k / n)
+        try:
+            self._robot.bus.disable_torque()
+            print("[follower] torque disabled")
+        except Exception as exc:
+            print(f"[follower] WARNING disable torque: {exc}")
+        try:
+            self._robot.disconnect()
+        except Exception:
+            pass
 
 
 ##
@@ -267,14 +396,15 @@ def make_env(task_id: str, num_envs: int = 1):
     cfg = getattr(importlib.import_module(mod_name), cls_name)()
     cfg.scene.num_envs = num_envs
     # XR rendering conflicts with extra camera sensors (isaaclab_teleop docs)
-    for cam in ("wrist_cam", "overhead_cam", "front_cam"):
+    for cam in ("wrist_cam", "wrist_cam_left", "wrist_cam_right", "overhead_cam", "front_cam"):
         if hasattr(cfg.scene, cam):
             setattr(cfg.scene, cam, None)
     return ManagerBasedRLEnv(cfg=cfg)
 
 
 class So101IKDriver:
-    """8D retargeter output -> DifferentialIK -> 6D absolute joint-position action."""
+    """8D retargeter output -> DifferentialIK -> 6D absolute joint-position action (single-arm)
+    or 12D for dual-arm (right arm: indices 0-5, left arm: indices 6-11)."""
 
     def __init__(self, env, gripper_open: float, gripper_close: float, ik_lambda: float):
         import torch
@@ -285,8 +415,22 @@ class So101IKDriver:
         self.subtract_frame_transforms = subtract_frame_transforms
         self.matrix_from_quat = matrix_from_quat
         self.quat_inv = quat_inv
+        self.gripper_open = gripper_open
+        self.gripper_close = gripper_close
+        self.num_envs = env.num_envs
+        self.device = env.device
 
-        robot = env.unwrapped.scene["robot"]
+        scene = env.unwrapped.scene
+        # Detect single-arm vs dual-arm setup
+        self.is_dual_arm = "robot_left" in scene and "robot_right" in scene
+        if self.is_dual_arm:
+            self._init_dual_arm(scene, ik_lambda)
+        else:
+            self._init_single_arm(scene, ik_lambda)
+
+    def _init_single_arm(self, scene, ik_lambda):
+        """Initialize single-arm driver."""
+        robot = scene["robot"]
         body_names = list(robot.data.body_names)
         joint_names = list(robot.data.joint_names)
 
@@ -299,73 +443,150 @@ class So101IKDriver:
         self.robot = robot
         self.ee_body_idx = find(body_names, EE_BODY_SUFFIX, "body")
         self.base_body_idx = find(body_names, "base_link", "body")
-        self.ee_jacobi_idx = self.ee_body_idx - 1  # fixed-base jacobian rows drop the root body
+        self.ee_jacobi_idx = self.ee_body_idx - 1
         self.arm_joint_ids = [find(joint_names, j, "joint") for j in ARM_JOINTS]
-        self.gripper_joint_id = find(joint_names, "gripper", "joint")
 
         ik_cfg = DifferentialIKControllerCfg(
             command_type="pose", use_relative_mode=False, ik_method="dls",
             ik_params={"lambda_val": ik_lambda},
         )
-        self.ik = DifferentialIKController(ik_cfg, num_envs=env.num_envs, device=env.device)
-        self.gripper_open = gripper_open
-        self.gripper_close = gripper_close
+        self.ik = DifferentialIKController(ik_cfg, num_envs=self.num_envs, device=self.device)
+
+    def _init_dual_arm(self, scene, ik_lambda):
+        """Initialize dual-arm driver with separate IK per arm."""
+        from isaaclab.controllers import DifferentialIKController, DifferentialIKControllerCfg
+
+        def setup_arm(robot, suffix):
+            body_names = list(robot.data.body_names)
+            joint_names = list(robot.data.joint_names)
+
+            def find(names, suf, what):
+                hits = [i for i, n in enumerate(names) if n.endswith(suf)]
+                if len(hits) != 1:
+                    raise KeyError(f"expected exactly one {what} ending '{suf}', got {hits} in {names}")
+                return hits[0]
+
+            ee_body_idx = find(body_names, EE_BODY_SUFFIX, "body")
+            base_body_idx = find(body_names, "base_link", "body")
+            ee_jacobi_idx = ee_body_idx - 1
+            arm_joint_ids = [find(joint_names, j, "joint") for j in ARM_JOINTS]
+
+            ik_cfg = DifferentialIKControllerCfg(
+                command_type="pose", use_relative_mode=False, ik_method="dls",
+                ik_params={"lambda_val": ik_lambda},
+            )
+            ik = DifferentialIKController(ik_cfg, num_envs=self.num_envs, device=self.device)
+            return {
+                "robot": robot,
+                "ee_body_idx": ee_body_idx,
+                "base_body_idx": base_body_idx,
+                "ee_jacobi_idx": ee_jacobi_idx,
+                "arm_joint_ids": arm_joint_ids,
+                "ik": ik,
+            }
+
+        self.robot_right = setup_arm(scene["robot_right"], "right")
+        self.robot_left = setup_arm(scene["robot_left"], "left")
+        self.ik = [self.robot_right["ik"], self.robot_left["ik"]]  # list for reset()
 
     def reset(self):
-        self.ik.reset()
+        if self.is_dual_arm:
+            for ik in self.ik:
+                ik.reset()
+        else:
+            self.ik.reset()
 
     def base_T_world(self):
         """(4, 4) base_link_T_world float32 — fed to the pipeline as world_T_anchor."""
-        pose = self.robot.data.body_pose_w.torch[:, self.base_body_idx]
-        t = self.torch.eye(4, device=self.robot.device)
+        if self.is_dual_arm:
+            robot = self.robot_right["robot"]
+            base_body_idx = self.robot_right["base_body_idx"]
+        else:
+            robot = self.robot
+            base_body_idx = self.base_body_idx
+
+        pose = robot.data.body_pose_w.torch[:, base_body_idx]
+        t = self.torch.eye(4, device=robot.device)
         t[:3, :3] = self.matrix_from_quat(pose[:, 3:7])[0]
         t[:3, 3] = pose[0, :3]
         return t.detach().cpu().numpy().astype("float32")
 
     def home_base_T_ee(self):
         """(4, 4) base_link_T_ee float64 at the current (reset) pose — clutch seed."""
-        pose = self.robot.data.body_pose_w.torch
-        ee_w, base_w = pose[:, self.ee_body_idx], pose[:, self.base_body_idx]
+        if self.is_dual_arm:
+            robot = self.robot_right["robot"]
+            ee_body_idx = self.robot_right["ee_body_idx"]
+            base_body_idx = self.robot_right["base_body_idx"]
+        else:
+            robot = self.robot
+            ee_body_idx = self.ee_body_idx
+            base_body_idx = self.base_body_idx
+
+        pose = robot.data.body_pose_w.torch
+        ee_w, base_w = pose[:, ee_body_idx], pose[:, base_body_idx]
         pos_b, quat_b = self.subtract_frame_transforms(
             base_w[:, 0:3], base_w[:, 3:7], ee_w[:, 0:3], ee_w[:, 3:7]
         )
-        t = self.torch.eye(4, device=self.robot.device, dtype=self.torch.float64)
+        t = self.torch.eye(4, device=robot.device, dtype=self.torch.float64)
         t[:3, :3] = self.matrix_from_quat(quat_b)[0].to(self.torch.float64)
         t[:3, 3] = pos_b[0].to(self.torch.float64)
         return t.detach().cpu().numpy()
 
-    def step(self, action8):
-        """action8: (8,) [x y z qx qy qz qw closedness] expressed in base frame."""
-        torch = self.torch
-        cmd = torch.as_tensor(action8, device=self.robot.device, dtype=torch.float32).unsqueeze(0)
+    def _step_arm(self, robot_info, action8):
+        """Compute IK for one arm."""
+        robot = robot_info["robot"]
+        ee_body_idx = robot_info["ee_body_idx"]
+        base_body_idx = robot_info["base_body_idx"]
+        ee_jacobi_idx = robot_info["ee_jacobi_idx"]
+        arm_joint_ids = robot_info["arm_joint_ids"]
+        ik = robot_info["ik"]
 
-        pose = self.robot.data.body_pose_w.torch
-        ee_w, base_w = pose[:, self.ee_body_idx], pose[:, self.base_body_idx]
+        torch = self.torch
+        cmd = torch.as_tensor(action8, device=robot.device, dtype=torch.float32).unsqueeze(0)
+
+        pose = robot.data.body_pose_w.torch
+        ee_w, base_w = pose[:, ee_body_idx], pose[:, base_body_idx]
         ee_pos_b, ee_quat_b = self.subtract_frame_transforms(
             base_w[:, 0:3], base_w[:, 3:7], ee_w[:, 0:3], ee_w[:, 3:7]
         )
 
-        jacobian = self.robot.data.body_link_jacobian_w.torch[
-            :, self.ee_jacobi_idx, :, self.arm_joint_ids
-        ]
+        jacobian = robot.data.body_link_jacobian_w.torch[:, ee_jacobi_idx, :, arm_joint_ids]
         rot_to_base = self.matrix_from_quat(self.quat_inv(base_w[:, 3:7]))
         jacobian[:, :3, :] = torch.bmm(rot_to_base, jacobian[:, :3, :])
         jacobian[:, 3:, :] = torch.bmm(rot_to_base, jacobian[:, 3:, :])
 
-        self.ik.set_command(cmd[:, 0:7])
-        joint_pos_arm = self.robot.data.joint_pos.torch[:, self.arm_joint_ids]
-        arm_targets = self.ik.compute(ee_pos_b, ee_quat_b, jacobian, joint_pos_arm)
-        # keep DLS targets inside physical limits (5-DOF arm cannot hit every
-        # orientation; unclamped wind-up would chatter against the limit stops)
-        limits = self.robot.data.joint_pos_limits.torch[:, self.arm_joint_ids]
+        ik.set_command(cmd[:, 0:7])
+        joint_pos_arm = robot.data.joint_pos.torch[:, arm_joint_ids]
+        arm_targets = ik.compute(ee_pos_b, ee_quat_b, jacobian, joint_pos_arm)
+        limits = robot.data.joint_pos_limits.torch[:, arm_joint_ids]
         arm_targets = arm_targets.clamp(limits[..., 0], limits[..., 1])
 
         closedness = float(cmd[0, 7])
         gripper_target = self.gripper_open + closedness * (self.gripper_close - self.gripper_open)
-        action = joint_pos_arm.new_zeros(self.robot.num_instances, len(self.arm_joint_ids) + 1)
+        action = joint_pos_arm.new_zeros(robot.num_instances, len(arm_joint_ids) + 1)
         action[:, :-1] = arm_targets
         action[:, -1] = gripper_target
         return action
+
+    def step(self, action8):
+        """action8: (8,) [x y z qx qy qz qw closedness] expressed in base frame.
+        Returns: (num_envs, 6) for single-arm or (num_envs, 12) for dual-arm."""
+        if self.is_dual_arm:
+            right_action = self._step_arm(self.robot_right, action8)
+            left_action = self._step_arm(self.robot_left, action8)
+            return self.torch.cat([right_action, left_action], dim=1)
+        else:
+            return self._step_arm(
+                {
+                    "robot": self.robot,
+                    "ee_body_idx": self.ee_body_idx,
+                    "base_body_idx": self.base_body_idx,
+                    "ee_jacobi_idx": self.ee_jacobi_idx,
+                    "arm_joint_ids": self.arm_joint_ids,
+                    "ik": self.ik,
+                },
+                action8,
+            )
 
 
 def build_home_and_bundle(bits: dict, driver: So101IKDriver, source_mode: str) -> PipelineBundle:
@@ -465,32 +686,20 @@ def run_vr(args) -> int:
     bits = _import_isaacteleop_bits()  # fail fast, before Kit boots
     from isaaclab.app import AppLauncher
 
-    # In headless mode, suppress XR display rendering to avoid GPU OOM from
-    # the 4096×3584 per-eye swapchain textures. Controller tracking still works.
-    if args.headless:
-        import os as _os
-        _os.environ["OMNI_KIT_HEADLESS"] = "1"
-
+    # Note: do NOT set OMNI_KIT_HEADLESS=1 — that suppresses the XR compositor,
+    # which breaks CloudXR swapchain creation. AppLauncher(headless=True) is
+    # sufficient to suppress the local window while keeping XR streaming alive.
     launcher = AppLauncher(headless=args.headless, xr=True)
     simulation_app = launcher.app
 
-    # Disable XR display pipeline after Kit boots — this frees the GPU memory
-    # that would be used for stereo swapchain textures, while keeping the
-    # OpenXR session + controller tracking alive for isaacteleop.
-    if args.headless:
-        try:
-            import carb.settings
-            s = carb.settings.get_settings()
-            # Disable RTX rendering entirely (not needed for state-based teleop)
-            s.set("/app/renderer/enabled", False)
-            # Disable XR display composition (tracking still works)
-            s.set("/xr/profile/display/enabled", False)
-            # Reduce render resolution to minimum (fallback if display isn't fully disabled)
-            s.set("/app/renderer/resolution/width", 256)
-            s.set("/app/renderer/resolution/height", 256)
-            print("[vr] headless: disabled XR display pipeline (tracking-only mode)", flush=True)
-        except Exception as e:
-            print(f"[vr] warning: could not disable XR display ({e})", flush=True)
+    # Keep XR display pipeline alive so CloudXR can create its video encoder
+    # (nvstServer) and stream frames to the Quest. Previously this block disabled
+    # renderer/enabled and xr/profile/display/enabled to save VRAM, but that
+    # prevents the swapchain from being created → nvstServer[2] never initializes
+    # → NVST_R_INVALID_STATE spam. RTX 4060 has enough VRAM (~5-6 GB free) for
+    # the 4096×3584 per-eye unwarped textures CloudXR expects.
+    # AppLauncher(headless=True) already suppresses the local window; no extra
+    # renderer disable needed.
 
     # isaaclab_teleop depends on 'carb' (Kit SDK) which is only available
     # AFTER AppLauncher boots Kit — must import here, not before.
@@ -506,6 +715,7 @@ def run_vr(args) -> int:
             "  (it ships inside the isaaclab 3.0.0b2 wheel already present in this venv)"
         )
     rc = 1
+    follower: "FollowerSink | None" = None
     try:
         import torch
 
@@ -553,6 +763,16 @@ def run_vr(args) -> int:
             "  (advance()==None means still waiting; tensors flow once connected)\n"
         )
 
+        # Real arm sink — connected only if --follower-port is given
+        if args.follower_port or args.dry_run_follower:
+            follower = FollowerSink(
+                port=args.follower_port or "/dev/ttyACM0",
+                follower_id=args.follower_id,
+                max_jump_rad=args.max_jump_rad,
+                torque_limit_pct=args.follower_torque_limit,
+                dry_run=args.dry_run_follower,
+            ).connect()
+
         with device:
             squeeze_prev = False
             while simulation_app.is_running():
@@ -572,13 +792,21 @@ def run_vr(args) -> int:
                     reclutch(bundle)
                     print("[vr] grip press -> clutch re-centered")
                 squeeze_prev = squeeze_now
-                env.step(driver.step(action8))
+                joint_action = driver.step(action8)
+                env.step(joint_action)
+                # Mirror joint targets to real arm (6 values: 5 arm + gripper, rad)
+                if follower is not None:
+                    follower.send(joint_action[0].cpu().numpy())
         env.close()
+        if follower is not None:
+            follower.close()
         rc = 0
     except Exception as e:  # noqa: BLE001
         import traceback
 
         traceback.print_exc()
+        if follower is not None:
+            follower.close()
         _fail(str(e))
     finally:
         simulation_app.close()
