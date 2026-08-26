@@ -77,18 +77,31 @@ on mode 2). Keep the headset charged if you want it as a backup demo.
 ### Mode 1 — gamepad → sim (MuJoCo IK)
 
 ```bash
-# headless CI check first (no DS4 required)
+# headless CI check first (no DS4 required) -- also runs the mock-button
+# unit test (Circle/Cross gripper rates, dead right-stick-X, L1 homing ramp
+# + e-stop/stick interrupts)
 MUJOCO_GL=egl python scripts/teleop_gamepad_ik.py --env single --dry-run
+MUJOCO_GL=egl python scripts/teleop_gamepad_ik.py --env dual --dry-run
 # live (desktop session, NOT with MUJOCO_GL=egl, so the viewer can open)
 python scripts/teleop_gamepad_ik.py --env single            # add --device 0 if several pads
 python scripts/teleop_gamepad_ik.py --env dual --arm left   # Share toggles arms
 ```
 
 Mapping (printed at startup): left stick = EE x/y · right stick vert = EE z ·
-right stick horiz = wrist roll · **L1/R1** = pitch · **L2/R2** = gripper
-close/open · **Share** = toggle arm (dual) · **Options** = re-center IK target
-· **Square** = safe quit · **PS** = E-STOP latch (freeze; Options resumes).
-Deadzone 0.15. Safety: sim-only — nothing physical moves.
+right stick horiz = DEAD · **Circle/Cross (hold)** = gripper close/open at
+1.5 rad/s · **L2/R2** = DEAD · **L1/R1 (press)** = safe-home: ~1.5 s
+rate-limited ramp of ALL joints to HOME_POSE, then the IK target re-centers
+at the home EE pose (interruptible: PS e-stop or any stick deflection past
+deadzone cancels mid-ramp) · **Share** = toggle arm (dual) · **Options** =
+re-center IK target · **Square** = safe quit · **PS** = E-STOP latch (freeze;
+Options resumes). Deadzone 0.15. The viewer draws a semi-transparent red
+sphere (r = 1.2 cm) at the IK target every frame -- it tracks through
+e-stop and homing so you can always see where the arm is headed.
+Safety: sim-only — nothing physical moves.
+
+> VR note: the isaacteleop/XR route's analog trigger is a continuous value
+> mapped straight to gripper openness — already the desired control style,
+> matching this script's hold-Circle/Cross rate control.
 
 ### Mode 2 — gamepad → sim (Isaac)
 
@@ -241,6 +254,7 @@ Caveats — read before trusting it on hardware:
 | Feetech scan fails / "Incorrect status packet!" | Baud must be 1 Mbaud; only ONE program can hold the port (kill stray teleop procs); check servo IDs 1–6 with `lerobot-setup-motors`; retry — occasional corrupt status packets are normal, lerobot retries twice. |
 | Arm jumps or sits at constant offset vs sim | Calibration mismatch: re-run `lerobot-calibrate` for that id; verify IDs match joint order (section 4). |
 | pygame sees no joystick ("No joystick found") | DS4 not paired/awake; BT: re-pair (PS+SHARE); USB: try another cable/port; user not in `input` group (log out/in); Steam Input grabbing the pad — disable it; check `ls /dev/input/js*`. |
+| DS4 probe shows stick values far outside [-1, 1] (e.g. hundreds) | Some units expose unscaled axes through pygame's sdl2-controller layer; teleop clamps to [-1, 1] so commands stay bounded. Before driving live, sanity-check deflections with `python scripts/check_gamepad.py` — sticks should rest near 0 and sweep smoothly to ±1. |
 | Viewer window fails / EGL errors on desktop | Don't set `MUJOCO_GL=egl` for live viewer runs; use it only for headless/dry-run commands as written above. |
 | Isaac task dies silently (exit 0, short log) | GPU/RAM starvation (~90%): free memory, close sims, retry — see HANDOFF.md sharp edges. |
 | `--dry-run` passes but live errors instantly | Expected split: dry-run never imports lerobot/pygame hardware paths; live needs port + calibration file present (`~/.cache/huggingface/lerobot/calibration/...`). |

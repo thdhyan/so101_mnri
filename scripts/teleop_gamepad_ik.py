@@ -16,14 +16,23 @@ call the exact same two methods instead of reading a joystick.
 DS4 control mapping (also printed at startup):
     Left stick X/Y       EE x/y velocity            (LINEAR_SCALE m/s at full)
     Right stick Y        EE z velocity              (LINEAR_SCALE m/s at full)
-    Right stick X        wrist_roll rate            (ROLL_SCALE rad/s)
-    L1 / R1              wrist_flex (pitch) rate    (PITCH_SCALE rad/s, opposite)
-    L2 / R2 (analog)     gripper close / open rate  (GRIPPER_SCALE rad/s)
+    Right stick X        DEAD (wrist-roll channel removed)
+    Circle (held)        gripper CLOSE rate         (GRIPPER_SCALE rad/s)
+    Cross (held)         gripper OPEN rate          (GRIPPER_SCALE rad/s)
+    L2 / R2 (analog)     DEAD (trigger-gripper channel removed)
+    L1 / R1 (press)      SAFE-HOME: rate-limited ~1.5 s ramp of ALL joints to
+                         HOME_POSE, then the IK target re-centers at the home
+                         EE pose. Interruptible: e-stop cancels; any stick
+                         deflection beyond deadzone cancels mid-ramp.
+    Viewer overlay       semi-transparent red sphere (r = 1.2 cm) drawn at the
+                         IK EE target every frame; tracks through e-stop and
+                         homing so you always see where the arm is headed
     Options              RE-CENTER: snap IK target to current EE pose
                          (also resumes from e-stop)  <-- safety: use liberally
     Share                toggle active arm (dual env only; both arms stay simulated)
     PS button            E-STOP latch: all arms freeze at current pose, neutral
                          gripper; press Options to re-center and resume
+                         (also cancels an in-progress safe-home ramp)
     Square               safe quit: freeze at current pose, neutral gripper,
                          settle 0.5 s, exit cleanly
 
@@ -40,6 +49,8 @@ Usage:
     MUJOCO_GL=egl python scripts/teleop_gamepad_ik.py --env single
     MUJOCO_GL=egl python scripts/teleop_gamepad_ik.py --env dual --arm left
     MUJOCO_GL=egl python scripts/teleop_gamepad_ik.py --env single --dry-run
+        (dry-run also replays a scripted mock-button sequence -- Circle/Cross
+        gripper rates, right-stick-X dead, L1 homing ramp + interrupts)
 
 Limitation -- `--arm both` intentionally NOT offered: the IK layer trivially
 supports two independent IKTeleop instances (dual mode already solves both
@@ -50,12 +61,17 @@ architecture problem.
 """
 import argparse
 import math
+import os
 import sys
 import time
 from dataclasses import dataclass, field
 
 import numpy as np
 import mujoco
+
+# Joystick input needs no display (see check_gamepad.py); the MuJoCo viewer
+# uses GLFW directly and is unaffected. Keeps --dry-run/mock tests headless.
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 from _env_utils import scene_path, joint_names, gripper_site_name, HOME_POSE, resolve_actuator_ids, resolve_joint_ids
 
@@ -66,14 +82,16 @@ JOINT_SUFFIXES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "
 DEADZONE = 0.15
 TRIGGER_DEADZONE = 0.08  # applied after [-1,1] -> [0,1] normalization
 LINEAR_SCALE = 0.15   # m/s at full stick deflection
-ROLL_SCALE = 1.5       # rad/s at full stick deflection
-PITCH_SCALE = 1.0      # rad/s for shoulder buttons
-GRIPPER_SCALE = 1.5    # rad/s
+GRIPPER_SCALE = 1.5    # rad/s while Circle (close) / Cross (open) is held
+HOMING_DURATION = 1.5  # s for the L1/R1 safe-home ramp across the full travel
 CONTROL_HZ = 60.0
 NEUTRAL_GRIPPER = 0.5  # openness used by e-stop / safe shutdown
 
 
 def apply_deadzone(x, dz=DEADZONE):
+    # clamp first: some DS4 units report wildly-out-of-range axes through
+    # pygame's sdl2-controller layer (observed +-1000s); commands must stay bounded
+    x = float(np.clip(x, -1.0, 1.0))
     if abs(x) < dz:
         return 0.0
     # rescale so output is continuous from 0 at the deadzone edge
@@ -267,12 +285,17 @@ class DS4Gamepad:
 def print_mapping_table():
     print("""DS4 mapping:
   left stick X/Y .... EE x/y vel      right stick Y ..... EE z vel
-  right stick X ..... wrist_roll      L1 / R1 ........... wrist pitch -/+
-  L2 / R2 ........... gripper close/open
+  right stick X ..... DEAD           L2 / R2 ........... DEAD
+  CIRCLE (hold) ..... gripper CLOSE  CROSS (hold) ...... gripper OPEN  (1.5 rad/s)
+  L1 / R1 (press) ... SAFE-HOME: ~1.5 s ramp of all joints to HOME_POSE,
+                      then IK target re-centers at home EE pose
+                      (e-stop or stick deflection cancels mid-ramp)
   OPTIONS ........... re-center IK target to current EE pose (safety)
   SHARE ............. toggle active arm (dual env)
-  PS ................ E-STOP latch (freeze + neutral gripper; Options resumes)
-  SQUARE ............ safe quit (freeze + neutral gripper + settle)""")
+  PS ................ E-STOP latch (freeze + neutral gripper; Options resumes;
+                      cancels homing)
+  SQUARE ............ safe quit (freeze + neutral gripper + settle)
+  viewer ............ red sphere @ IK target (tracks through e-stop/homing)""")
 
 
 class IKTeleop:
@@ -458,6 +481,135 @@ def probe_gamepad():
         print(f"[dry-run] gamepad present but unreadable ({e}); see checklist above")
 
 
+class _MockPad:
+    """Scripted DS4Gamepad stand-in: replays a fixed PadState frame list."""
+
+    def __init__(self, frames):
+        self._frames = list(frames)
+        self.name = "MockDS4 (scripted)"
+        self.mode = "dry-run-script"
+
+    def poll(self):
+        if len(self._frames) > 1:
+            return self._frames.pop(0)
+        return self._frames[0]
+
+
+def _mock_frame(left=(0.0, 0.0), right=(0.0, 0.0), buttons=None):
+    buttons = buttons or {}
+    return PadState(
+        left_stick=np.array([apply_deadzone(v) for v in left]),
+        right_stick=np.array([apply_deadzone(v) for v in right]),
+        l2=0.0, r2=0.0,
+        buttons={n: bool(buttons.get(n, False)) for n in ALL_BUTTON_NAMES},
+        dpad=(0, 0),
+    )
+
+
+def mock_button_test(env, arm="left", steps=100):
+    """Hardware-free unit test of the new mapping: drives the REAL gamepad
+    loop (run_gamepad) with a scripted pad and asserts gripper rates, the
+    dead right-stick-X channel, homing completion, and both interrupts."""
+    frames = []
+    marks = {}
+
+    def add(n, label=None, **kw):
+        if label:
+            marks[label] = len(frames)
+        frames.extend(_mock_frame(**kw) for _ in range(n))
+        return marks[label]
+
+    add(10, "settle")
+    add(30, "open", buttons={"cross": True})       # Cross -> openness rises
+    add(5, "post_open")
+    add(30, "close", buttons={"circle": True})     # Circle -> openness falls
+    add(5, "post_close")
+    add(30, "rx", right=(1.0, 0.0))                # right stick X must be dead
+    add(10, "pre_home")
+    add(1, "home1_edge", buttons={"l1": True})     # L1 press -> safe-home
+    add(160, "home1_ramp")                         # ~2.7 s of runway > 1.5 s ramp
+    add(30, "away", left=(1.0, 0.0))               # drag EE off home
+    add(1, "home2_edge", buttons={"l1": True})
+    add(20, "home2_mid")                           # mid-ramp...
+    add(1, "estop_edge", buttons={"ps": True})     # ...e-stop cancels homing
+    add(8, "estop_hold")
+    add(1, "resume_edge", buttons={"options": True})
+    add(4, "post_resume")
+    add(1, "home3_edge", buttons={"l1": True})
+    add(15, "home3_mid")                           # mid-ramp...
+    add(1, "stick_cancel", left=(1.0, 0.0))        # ...stick deflection cancels
+    add(20, "after_cancel")
+    add(1, "quit_edge", buttons={"square": True})
+
+    history = []
+    run_gamepad(env, arm, device_index=0, no_viewer=True,
+                pad=_MockPad(frames), tick_hook=history.append)
+
+    def avg_grip(a, b):
+        return float(np.mean([history[i]["grip"] for i in range(a, b + 1)]))
+
+    h = history
+    assert len(h) >= marks["quit_edge"], f"loop ended early ({len(h)} ticks)"
+
+    g0 = avg_grip(marks["settle"] + 7, marks["settle"] + 9)
+    g1 = avg_grip(marks["open"] + 27, marks["open"] + 29)
+    assert g1 > g0 + 0.03, f"Cross must open gripper ({g0:.3f} -> {g1:.3f})"
+    print(f"[mock] Cross held 30 ticks: openness {g0:.3f} -> {g1:.3f} (increased)")
+
+    g2 = avg_grip(marks["close"] + 27, marks["close"] + 29)
+    gp = avg_grip(marks["post_open"], marks["post_open"] + 2)
+    assert g2 < gp - 0.03, f"Circle must close gripper ({gp:.3f} -> {g2:.3f})"
+    print(f"[mock] Circle held 30 ticks: openness {gp:.3f} -> {g2:.3f} (decreased)")
+
+    i_rx = marks["rx"]
+    ee_a, ee_b = h[i_rx]["ee"], h[i_rx + 29]["ee"]
+    assert np.allclose(ee_a[:2], ee_b[:2], atol=1e-12), \
+        f"right stick X moved XY target: {ee_a} -> {ee_b}"
+    roll_a = h[i_rx]["qpos"][4]
+    roll_b = h[i_rx + 29]["qpos"][4]
+    assert abs(roll_b - roll_a) < 1e-3, f"right stick X rolled wrist ({roll_a}->{roll_b})"
+    assert np.allclose(h[i_rx]["ee"][2], h[i_rx + 29]["ee"][2], atol=1e-12), \
+        "right stick X leaked into Z"
+    print(f"[mock] right-stick X full deflection 30 ticks: "
+          f"XY d={np.linalg.norm(ee_b[:2]-ee_a[:2]):.1e} m, "
+          f"roll d={abs(roll_b-roll_a):.1e} rad (dead)")
+
+    i0 = next(i for i in range(marks["home1_edge"], len(h)) if h[i]["homing"])
+    done = [i for i in range(i0, min(i0 + 200, len(h)))
+            if not h[i]["homing"]
+            and np.allclose(h[i]["qpos"], HOME_POSE, atol=0.05)
+            and np.allclose(h[i]["ctrl"], HOME_POSE, atol=0.05)]
+    assert done, "L1 homing ramp never reached HOME_POSE"
+    j = done[0]
+    assert h[j]["ee_err"] < 5e-3, \
+        f"IK target not re-centered after homing (ee_err={h[j]['ee_err']:.2e} m)"
+    print(f"[mock] L1 -> homing reached HOME_POSE at tick {j - i0} "
+          f"({(j - i0) / CONTROL_HZ:.2f} s) and cleared; ctrl == HOME_POSE, "
+          f"target re-centered (ee_err={h[j]['ee_err']:.1e} m)")
+
+    q_away = h[marks["away"] + 29]["qpos"]
+    assert np.max(np.abs(q_away - HOME_POSE)) > 0.02, "arm failed to leave home"
+
+    k = marks["estop_edge"]
+    assert not h[k]["homing"] and h[k]["estop"], "e-stop did not cancel homing"
+    assert not np.allclose(h[k]["qpos"], HOME_POSE, atol=0.02), \
+        "homing should have been cancelled mid-ramp"
+    print(f"[mock] PS mid-ramp: homing cleared, estop latched, "
+          f"max|q-HOME|={np.max(np.abs(h[k]['qpos'] - HOME_POSE)):.3f} rad (cancelled)")
+
+    r = marks["resume_edge"]
+    assert not h[r]["estop"], "Options did not clear e-stop"
+
+    s = marks["stick_cancel"]
+    assert not h[s]["homing"], "stick deflection did not cancel homing"
+    drift = np.max(np.abs(h[s + 19]["qpos"] - h[s + 2]["qpos"]))
+    assert drift < 0.05, f"ramp continued after cancel (drift {drift:.3f} rad)"
+    print(f"[mock] stick deflection mid-ramp: homing cleared; "
+          f"17-tick joint drift after cancel = {drift:.1e} rad (held)")
+
+    print("[mock] mock-button mapping test OK")
+
+
 def run_dry_run(env, arm, steps=100):
     self_test_pad_math()
     model, data, ik = build_ik(env, arm)
@@ -488,10 +640,14 @@ def run_dry_run(env, arm, steps=100):
     assert pre_q.shape == ik._current_qpos().shape
     probe_gamepad()
 
+    # scripted mock-button test of the new DS4 mapping (no hardware needed)
+    mock_button_test(env, arm=arm if arm is not None else "left")
+
     print("[dry-run] OK")
 
 
-def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
+def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None,
+                pad=None, tick_hook=None):
     import pygame
 
     pygame.init()
@@ -512,7 +668,8 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
         ik_by_arm[other] = IKTeleop(model, data, joint_ids, actuator_ids, site_id)
         mujoco.mj_forward(model, data)
 
-    pad = DS4Gamepad.detect(device_index)
+    if pad is None:
+        pad = DS4Gamepad.detect(device_index)
     if pad is None:
         print(NO_GAMEPAD_HELP)
         sys.exit(1)
@@ -542,6 +699,9 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
 
     prev_buttons = {}
     estop = False
+    homing = False          # safe-home ramp in progress (active arm)
+    homing_t0 = 0.0
+    homing_start_q = None
     running = True
     next_status = time.time()
 
@@ -572,6 +732,8 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
 
             if edges.get("ps"):
                 estop = not estop
+                if estop and homing:
+                    homing = False  # e-stop interrupts the safe-home ramp
                 print(f"[ESTOP] {'LATCHED' if estop else 'released'} "
                       f"(freeze + neutral gripper; OPTIONS re-centers and resumes)")
 
@@ -583,50 +745,76 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
 
             if env == "dual" and edges.get("share"):
                 active_arm = "right" if active_arm == "left" else "left"
+                homing = False  # ramp state belongs to the previous arm
                 print(f"Active arm -> {active_arm}")
 
             cur_ik = ik_by_arm[active_arm]
 
-            if estop:
+            # safe-home trigger: rising edge on L1 OR R1
+            if (edges.get("l1") or edges.get("r1")):
+                if estop:
+                    print("[safe-home] ignored while e-stopped (OPTIONS resumes first)")
+                elif not homing:
+                    homing = True
+                    homing_t0 = time.time()
+                    homing_start_q = cur_ik._current_qpos().copy()
+                    print(f"[safe-home] ramping all joints to HOME_POSE "
+                          f"(~{HOMING_DURATION:.1f} s); stick deflection or PS cancels")
+
+            if homing and not estop:
+                # interruptible: any stick deflection beyond deadzone aborts
+                if st.left_stick.any() or abs(st.right_stick[1]) > 0.0:
+                    homing = False
+                    cur_ik.recenter_target()
+                    print("[safe-home] cancelled by stick input; target re-centered")
+                else:
+                    alpha = min((time.time() - homing_t0) / HOMING_DURATION, 1.0)
+                    target_q = homing_start_q + (HOME_POSE - homing_start_q) * alpha
+                    target_q = np.clip(target_q, cur_ik.jnt_range[:, 0], cur_ik.jnt_range[:, 1])
+                    data.ctrl[cur_ik.actuator_ids] = np.clip(
+                        target_q, cur_ik.ctrl_range[:, 0], cur_ik.ctrl_range[:, 1])
+                    # keep the IK target glued to the EE so the debug sphere
+                    # tracks the arm throughout the ramp
+                    cur_ik.set_ee_target(cur_ik._current_ee_pos())
+                    if alpha >= 1.0:
+                        homing = False
+                        cur_ik.recenter_target()
+                        print("[safe-home] reached HOME_POSE; IK target re-centered")
+            elif estop:
                 for a in ik_by_arm.values():
                     a.set_ee_target(a._current_ee_pos())
                     a.set_gripper(NEUTRAL_GRIPPER)
             else:
                 lx, ly = st.left_stick
-                rx, ry = st.right_stick
+                _, ry = st.right_stick  # right-stick X is DEAD (wrist roll removed)
 
                 vx = -ly * LINEAR_SCALE
                 vy = -lx * LINEAR_SCALE
                 vz = -ry * LINEAR_SCALE
-                wrist_roll_rate = rx * ROLL_SCALE
-                pitch_rate = (float(st.buttons.get("r1", False))
-                              - float(st.buttons.get("l1", False))) * PITCH_SCALE
-                gripper_rate = (st.r2 - st.l2) * GRIPPER_SCALE
 
                 new_target = cur_ik.ee_target + np.array([vx, vy, vz]) * dt_ctrl
                 cur_ik.set_ee_target(new_target)
 
-                new_openness = cur_ik.gripper_openness + gripper_rate * dt_ctrl
-                cur_ik.set_gripper(new_openness)
-
-                # wrist_roll / pitch driven as direct joint offsets (not through IK nullspace)
-                roll_idx = 4  # wrist_roll is index 4 in JOINT_SUFFIXES
-                pitch_idx = 3  # wrist_flex is index 3
-                qpos_adr = cur_ik.qpos_adr
-                data.qpos[qpos_adr[roll_idx]] += wrist_roll_rate * dt_ctrl
-                data.qpos[qpos_adr[roll_idx]] = np.clip(
-                    data.qpos[qpos_adr[roll_idx]], *cur_ik.jnt_range[roll_idx])
-                data.qpos[qpos_adr[pitch_idx]] += pitch_rate * dt_ctrl
-                data.qpos[qpos_adr[pitch_idx]] = np.clip(
-                    data.qpos[qpos_adr[pitch_idx]], *cur_ik.jnt_range[pitch_idx])
+                # Cross held opens, Circle held closes, at GRIPPER_SCALE rad/s
+                # (converted to the normalized openness the IK layer uses)
+                lo, hi = cur_ik.jnt_range[cur_ik._gripper_local_idx]
+                grip_rate = (float(st.buttons.get("cross", False))
+                             - float(st.buttons.get("circle", False))) * GRIPPER_SCALE
+                d_openness = grip_rate * dt_ctrl / max(hi - lo, 1e-9)
+                cur_ik.set_gripper(cur_ik.gripper_openness + d_openness)
 
             for a in ik_by_arm.values():
+                if homing and a is cur_ik:
+                    continue  # ctrl is driven directly by the ramp this tick
                 a.solve_step()
-            # keep roll/pitch ctrl pinned to the manually-adjusted qpos targets
-            # (also prevents nullspace drift while e-stopped)
-            qpos_adr = cur_ik.qpos_adr
-            data.ctrl[cur_ik.actuator_ids[4]] = data.qpos[qpos_adr[4]]
-            data.ctrl[cur_ik.actuator_ids[3]] = data.qpos[qpos_adr[3]]
+            # wrist_flex / wrist_roll now have no live input channel (right-X
+            # and L1/R1 pitch removed); pin their ctrl to the current qpos so
+            # IK nullspace/home bias cannot drift them (also while e-stopped).
+            # Skipped during homing, which writes all six ctrls itself.
+            if not homing:
+                qpos_adr = cur_ik.qpos_adr
+                data.ctrl[cur_ik.actuator_ids[4]] = data.qpos[qpos_adr[4]]
+                data.ctrl[cur_ik.actuator_ids[3]] = data.qpos[qpos_adr[3]]
 
             # mirror the active arm's joint targets to a real follower (sim + real together)
             if mirror is not None:
@@ -637,6 +825,16 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
 
             for _ in range(substeps):
                 mujoco.mj_step(model, data)
+
+            if tick_hook is not None:
+                tick_hook({
+                    "active": active_arm, "estop": estop, "homing": homing,
+                    "grip": cur_ik.gripper_openness,
+                    "ee": cur_ik.ee_target.copy(),
+                    "qpos": data.qpos[cur_ik.qpos_adr].copy(),
+                    "ctrl": data.ctrl[cur_ik.actuator_ids].copy(),
+                    "ee_err": cur_ik.ee_error(),
+                })
 
             if viewer is not None:
                 _draw_target_marker(viewer, cur_ik.ee_target)
@@ -650,7 +848,8 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
                 print(f"[{time.strftime('%H:%M:%S')}] arm={active_arm} "
                       f"ee_err={cur_ik.ee_error()*100:.2f}cm "
                       f"grip={cur_ik.gripper_openness:.2f} "
-                      f"{'ESTOP ' if estop else ''}{','.join(held)}")
+                      f"{'ESTOP ' if estop else ''}{'HOMING ' if homing else ''}"
+                      f"{','.join(held)}")
 
             elapsed = time.time() - t0
             time.sleep(max(0.0, dt_ctrl - elapsed))
@@ -666,15 +865,17 @@ def run_gamepad(env, arm, device_index, no_viewer=False, mirror=None):
 
 
 def _draw_target_marker(viewer, pos):
+    """Semi-transparent red debug sphere at the IK EE target (r = 1.2 cm),
+    drawn through the passive viewer's user_scn each frame."""
     scn = viewer.user_scn
     scn.ngeom = 0
     mujoco.mjv_initGeom(
         scn.geoms[0],
         type=mujoco.mjtGeom.mjGEOM_SPHERE,
-        size=[0.015, 0, 0],
+        size=[0.012, 0, 0],
         pos=np.asarray(pos, dtype=float),
         mat=np.eye(3).flatten(),
-        rgba=np.array([1.0, 0.2, 0.2, 0.8], dtype=float),
+        rgba=np.array([1.0, 0.15, 0.15, 0.6], dtype=float),
     )
     scn.ngeom = 1
 
