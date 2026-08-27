@@ -108,6 +108,26 @@ obs, reward, terminated, truncated, info = env.step(action)
 Set `MUJOCO_GL=egl` (or `osmesa`) for headless rendering on machines without
 a display.
 
+## Imitation Learning (Duck-Push-to-Square)
+
+Train a policy from teleoperation demonstrations instead of RL. Uses
+leader arm teleoperation + wrist/global cameras → LeRobotDataset →
+SmolVLA / GR00T / ACT finetuning.
+
+```bash
+# Record 400 demos with leader arm
+python -m vla.record_demos --leader-port /dev/ttyACM0 --dataset thakk100/so101_duck_push \
+    --task "push the duck into the square tape" --episodes 400
+
+# Train (SmolVLA on laptop, ~15 min)
+python -m vla.finetune --backend smolvla --dataset thakk100/so101_duck_push --steps 10000
+
+# Deploy on real robot
+python -m vla.deploy --backend smolvla --checkpoint vla/runs/smolvla/last
+```
+
+Full plan: **[IL_PLAN.md](IL_PLAN.md)** | Pipeline details: **[vla/](vla/)**
+
 ## Teleoperation
 
 ```bash
@@ -136,8 +156,10 @@ envs/
   isaac/                Isaac Lab port: 5 registered RL tasks, USD asset, scripts
 robots/so101/            shared meshes, MJCF, URDF — single source of truth
 rl/                      backend-agnostic training (skrl/rsl_rl): train.py, play.py, agents/
+vla/                     VLA finetuning + IL pipeline: record, augment, finetune, rollout, deploy
 scripts/                 teleop, camera viewer, manual verification, validation
 third_party/             git submodules: mjlab, skrl (user forks)
+IL_PLAN.md               imitation learning plan (duck-push-to-square task)
 HANDOFF.md               start here when picking up the repo
 test.md                  failure archive from the Aug 2026 rework
 ```

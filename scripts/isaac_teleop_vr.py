@@ -102,6 +102,10 @@ def parse_args():
                         help="control steps for --null-device (default 100)")
     parser.add_argument("--headless", action="store_true",
                         help="no local Isaac window (the Quest still gets its own stream)")
+    parser.add_argument("--rendering-mode", choices=["quality", "balanced", "performance"],
+                        default="quality",
+                        help="RTX preset (lower = less VRAM/GPU load; use 'performance' on "
+                        "tight GPUs, esp. dual-arm scenes)")
     parser.add_argument("--cloudxr", choices=["auto", "external", "off"], default="auto",
                         help="auto: launch runtime+WSS from this script (default); external: "
                         "runtime started separately (python -m isaacteleop.cloudxr ...); "
@@ -421,8 +425,10 @@ class So101IKDriver:
         self.device = env.device
 
         scene = env.unwrapped.scene
-        # Detect single-arm vs dual-arm setup
-        self.is_dual_arm = "robot_left" in scene and "robot_right" in scene
+        # Detect single-arm vs dual-arm setup (InteractiveScene has no __contains__,
+        # so "in scene" falls through to __iter__/__getitem__(int) and raises KeyError)
+        scene_keys = scene.keys()
+        self.is_dual_arm = "robot_left" in scene_keys and "robot_right" in scene_keys
         if self.is_dual_arm:
             self._init_dual_arm(scene, ik_lambda)
         else:
@@ -689,7 +695,7 @@ def run_vr(args) -> int:
     # Note: do NOT set OMNI_KIT_HEADLESS=1 — that suppresses the XR compositor,
     # which breaks CloudXR swapchain creation. AppLauncher(headless=True) is
     # sufficient to suppress the local window while keeping XR streaming alive.
-    launcher = AppLauncher(headless=args.headless, xr=True)
+    launcher = AppLauncher(headless=args.headless, xr=True, rendering_mode=args.rendering_mode)
     simulation_app = launcher.app
 
     # Keep XR display pipeline alive so CloudXR can create its video encoder

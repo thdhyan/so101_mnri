@@ -56,6 +56,7 @@ MUJOCO_TASKS = {
     "pick_place": "envs.mujoco.so101_single_arm_pick_place.env:make_env",
     "cyl_grasp": "envs.mujoco.so101_dual_arm_cylinder_grasp.env:make_env",
     "cyl_reach": "envs.mujoco.so101_dual_arm_cylinder_reach.env:make_env",
+    "cyl_reach_single": "envs.mujoco.so101_single_arm_cylinder_reach.env:make_env",
     "push_t": "envs.mujoco.so101_single_arm_push_t.env:make_env",
     "cube_push_ramp": "envs.mujoco.so101_single_arm_cube_push_ramp.env:make_env",
     "cube_push_bridge": "envs.mujoco.so101_single_arm_cube_push_bridge.env:make_env",

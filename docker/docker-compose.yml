@@ -1,0 +1,69 @@
+# Docker Compose for SO101 IL Training
+# Usage:
+#   docker compose up train-smolvla
+#   docker compose up train-groot
+#   docker compose run --rm train-smolvla --steps 5000
+
+services:
+  # ── Base image (shared layers) ──
+  base:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.il
+    image: so101-il:latest
+    volumes:
+      - ../data:/workspace/data
+      - ../vla/runs:/workspace/vla/runs
+      - ../outputs:/workspace/outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # ── Quick IL backends ──
+  train-smolvla:
+    extends: base
+    entrypoint: ["python3", "-m", "vla.finetune"]
+    command: ["--backend", "smolvla", "--dataset", "thakk100/so101_duck_push", "--steps", "10000"]
+
+  train-act:
+    extends: base
+    entrypoint: ["python3", "-m", "vla.finetune"]
+    command: ["--backend", "act", "--dataset", "thakk100/so101_duck_push", "--steps", "5000"]
+
+  train-diffusion:
+    extends: base
+    entrypoint: ["python3", "-m", "vla.finetune"]
+    command: ["--backend", "diffusion", "--dataset", "thakk100/so101_duck_push", "--steps", "10000"]
+
+  train-vqbet:
+    extends: base
+    entrypoint: ["python3", "-m", "vla.finetune"]
+    command: ["--backend", "vqbet", "--dataset", "thakk100/so101_duck_push", "--steps", "10000"]
+
+  # ── VLA backends ──
+  train-pi0:
+    extends: base
+    entrypoint: ["python3", "-m", "vla.finetune"]
+    command: ["--backend", "pi0", "--dataset", "thakk100/so101_duck_push", "--steps", "15000"]
+
+  train-groot:
+    extends: base
+    entrypoint: ["python3", "-m", "vla.finetune"]
+    command: ["--backend", "groot", "--lora", "--dataset", "thakk100/so101_duck_push", "--steps", "20000"]
+
+  # ── Data recording ──
+  record:
+    extends: base
+    entrypoint: ["python3", "-m", "vla.record_demos"]
+    command: ["--dataset", "thakk100/so101_duck_push", "--episodes", "400", "--dry-run"]
+    network_mode: host  # for camera access
+
+  # ── Evaluation ──
+  rollout:
+    extends: base
+    entrypoint: ["python3", "-m", "vla.rollout"]
+    command: ["--backend", "smolvla", "--checkpoint", "vla/runs/smolvla/last"]
