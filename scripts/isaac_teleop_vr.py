@@ -436,6 +436,8 @@ class So101IKDriver:
 
     def _init_single_arm(self, scene, ik_lambda):
         """Initialize single-arm driver."""
+        from isaaclab.controllers import DifferentialIKController, DifferentialIKControllerCfg
+
         robot = scene["robot"]
         body_names = list(robot.data.body_names)
         joint_names = list(robot.data.joint_names)
