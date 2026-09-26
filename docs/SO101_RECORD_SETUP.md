@@ -243,16 +243,22 @@ tmux new-session -d -s so101id \
 ## Checking the config without moving anything
 
 ```bash
-python scripts/check_record_config.py          # no hardware touched
+bash scripts/record_so101.sh --dry-run   # exact argv LeRobot would get; no hardware
+python scripts/check_record_config.py          # ports, calibration, camera modes
 python scripts/check_record_config.py --deep   # also really opens both cameras
 ```
 
-Verifies both serial ports exist and differ, both calibration files are present
-and 6-motor, the requested camera mode is actually supported by the device, and
-that LeRobot's draccus parser accepts the whole config. `--deep` additionally
-opens both cameras through LeRobot's `OpenCVCamera` in the same order the
-recorder uses, which catches warmup/timeout failures here instead of after the
-arms are live.
+`--dry-run` installs the torque guard, has LeRobot parse the real argv, prints
+the resolved robot/teleop/cameras/dataset, and exits. Use it after any change to
+`record_so101.sh` or `so101_env.sh` — it catches quoting and arg-parsing bugs
+before they become a confusing `unrecognized arguments:` dump on the terminal.
+
+`check_record_config.py` resolves the arms by USB serial, verifies the ports
+exist and differ, that both calibration files are present and 6-motor, that the
+requested camera mode is supported by the device, and that draccus accepts the
+config. `--deep` additionally opens both cameras through LeRobot's
+`OpenCVCamera` in the recorder's order, which catches warmup/timeout failures
+here rather than after the arms are live.
 
 Note: the parse resolves `--robot.type=so101_follower` to `so100_follower` in the
 echoed config. That is cosmetic — both names are registered to the same
