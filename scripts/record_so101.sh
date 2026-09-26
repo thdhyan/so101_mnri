@@ -54,6 +54,9 @@ REPO_ID="${REPO_ID:-thakk100/so101_single_arm_6dof}"
 RECORD_TASK="${RECORD_TASK:-push the duck into the square tape}"
 NUM_EPISODES="${NUM_EPISODES:-100}"
 EPISODE_TIME_S="${EPISODE_TIME_S:-30}"
+DRY_RUN=""
+[[ "${1:-}" == "--dry-run" ]] && { DRY_RUN="--dry-run"; shift; }
+
 GRPC_PORT="${GRPC_PORT:-9876}"
 
 # --dataset.root is the dataset directory ITSELF, not a parent to put the
@@ -133,6 +136,7 @@ exec "$PY" "$REPO_ROOT/scripts/record_so101.py" \
   --guard-retries="${GUARD_RETRIES:-4}" \
   --guard-motor-delay="${GUARD_MOTOR_DELAY:-0.25}" \
   --guard-retry-delay="${GUARD_RETRY_DELAY:-0.4}" \
+  ${DRY_RUN} \
   --robot.type=so101_follower \
   --robot.port="$FOLLOWER_PORT" \
   --robot.id="$FOLLOWER_ID" \
