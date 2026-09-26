@@ -151,20 +151,27 @@ def report(leader: dict[str, float], follower: dict[str, float], max_delta: floa
     print(f"\nworst joint delta: {worst:.1f} deg   (gate: {max_delta:.1f} deg)")
 
     at_limit = []
-    for arm, pos in (("leader", leader), ("follower", follower)):
-        for j in JOINTS:
-            pct = travel_pct(arm, j, pos[j])
-            if pct is None:
-                continue
-            if pct < 10 or pct > 90:
-                at_limit.append(f"{arm}.{j} at {pct:.0f}% of its calibrated travel")
+    print("\ntravel through each joint's calibrated range (aim for ~50%):")
+    print(f"  {'joint':14s} {'leader':>9s} {'follower':>9s}")
+    for j in JOINTS:
+        pl = travel_pct("leader", j, leader[j])
+        pf = travel_pct("follower", j, follower[j])
+        if pl is None or pf is None:
+            continue
+        gl = f"{pl:6.0f}%" + ("!" if (pl < 10 or pl > 90) else " ")
+        gf = f"{pf:6.0f}%" + ("!" if (pf < 10 or pf > 90) else " ")
+        print(f"  {j:14s} {gl:>9s} {gf:>9s}")
+        if pl < 10 or pl > 90:
+            at_limit.append(f"leader.{j} at {pl:.0f}%")
+        if pf < 10 or pf > 90:
+            at_limit.append(f"follower.{j} at {pf:.0f}%")
     if at_limit:
-        print("\njoints near the end of their travel (large moves will stall):")
-        for line in at_limit:
-            print(f"  - {line}")
-        print("  Reposition that arm by hand (torque off) away from its stops")
-        print("  before recording. The leader's range is deliberately narrower")
-        print("  than the follower's, so being at an end of it is often fine.")
+        print("\n  '!' = pinned at the end of travel, where moves stall.")
+        print("  Steer the arm in your HAND toward ~50%. Move the arm on the table")
+        print("  by hand (torque off) if IT is the one pinned.")
+        print("  Note the leader's range is deliberately narrower than the")
+        print("  follower's (~59% on shoulder_lift, ~55% on elbow_flex), so keep")
+        print("  the follower near mid-travel to keep the two alignable.")
     return worst, at_limit
 
 
