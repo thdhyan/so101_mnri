@@ -130,16 +130,32 @@ Full plan: **[IL_PLAN.md](IL_PLAN.md)** | Pipeline details: **[vla/](vla/)**
 
 ## Real-robot data collection (single arm)
 
-Leader arm → follower arm + global/wrist cameras → `LeRobotDataset`, with a
-live view in a browser Web UI.
+Leader arm → follower arm + global/wrist cameras → `LeRobotDataset` (**v3.0**,
+written by LeRobot's own `lerobot-record`), with a live view in Rerun's native
+desktop viewer.
 
 ```bash
-python scripts/so101_debug_server.py     # terminal 1 — Rerun sink + Web UI :9090
-bash scripts/record_so101.sh             # terminal 2 — record
+bash scripts/record_so101.sh             # pose gate, then record
+bash scripts/record_so101.sh --dry-run   # check config, no hardware
+bash scripts/record_so101.sh --profile=12  # time the loop (separate *_profile dataset)
 ```
 
-Then open **http://localhost:9090**. Hardware assignment lives in
-`scripts/so101_env.sh`.
+Current dataset: `thakk100/pink_duck_in_a_box` → `data/thakk100_pink_duck_in_a_box`
+(100 × 20 s at 15 fps, 640×480). Hardware, dataset and task live in
+`scripts/so101_env.sh`. Browser view instead (headless/SSH): `RERUN_WEB=1` plus
+`python scripts/so101_debug_server.py`.
+
+Keys (keep the **terminal** focused):
+
+| key | action |
+|---|---|
+| `s` / `f` | label success / failure **and end** the episode (or its reset) |
+| `d` | discard this take and re-record |
+| `n` | end now / skip the rest of the 60 s reset (episode kept, unlabeled) |
+| `q` | stop — **wait for `Exiting`**; never Ctrl+C twice (corrupts the dataset) |
+
+Labels go to `meta/outcomes.json` (sidecar; the v3 schema is untouched):
+`python scripts/episode_outcomes.py --root data/thakk100_pink_duck_in_a_box`.
 
 Full guide: **[docs/SO101_RECORD_SETUP.md](docs/SO101_RECORD_SETUP.md)** ·
 capture→train→deploy preprocessing: **[docs/PREPROCESSING.md](docs/PREPROCESSING.md)**

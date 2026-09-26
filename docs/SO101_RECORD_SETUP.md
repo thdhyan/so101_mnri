@@ -1,8 +1,8 @@
 # SO-101 single-arm data collection — setup
 
-Leader arm → follower arm + 2 cameras → `LeRobotDataset`, with a live view in
-a browser Web UI. This is the real-hardware path; the MuJoCo/Isaac envs in this
-repo are separate.
+Leader arm → follower arm + 2 cameras → `LeRobotDataset` (v3.0), with a live
+view in Rerun's native desktop viewer. This is the real-hardware path; the
+MuJoCo/Isaac envs in this repo are separate.
 
 ## The two terminals
 
@@ -24,8 +24,29 @@ process, no URL to copy.
  leader   /dev/ttyACM0  (serial 5AAF263743, id=mnri_arms_1_leader)
  ...
  live view native Rerun window (spawned automatically)
- labels    s=success  f=failure  d=discard+re-record  n=end episode  q=quit
+ labels    s=success+end  f=failure+end  d=discard+re-record  n=end+keep  q=quit
 ```
+
+### Stopping safely — quit with `q`, never Ctrl+C twice
+
+LeRobot buffers the per-episode index (`meta/episodes/`) and flushes it only
+every 10 episodes or in `finalize()`; the frame parquet gets its footer only
+when its writer closes. `q` runs `finalize()`. A second Ctrl+C (or a kill)
+during finalize leaves `info.json` claiming N episodes with no
+`meta/episodes/` and a footer-less parquet. The next resume then falls back to
+the Hub and dies with `RepositoryNotFoundError: 404`. That dataset is
+unrecoverable -- this happened on 2026-09-25 and cost 8 episodes. Press `q`,
+wait for `Exiting`.
+
+### Profiling the loop
+
+```bash
+bash scripts/record_so101.sh --profile=12
+```
+
+Records ~12 s (timed from the first frame, not launch) then prints a per-call
+breakdown. It writes to a separate `<REPO_ID>_profile` dataset because LeRobot
+saves the cut-off take -- delete that folder afterwards.
 
 ### Other live-view modes
 
@@ -67,7 +88,7 @@ already exists.
 
 ```bash
 DATASET_ROOT="${DATA_PARENT}/$(printf '%s' "$REPO_ID" | tr '/' '_')"
-# -> data/thakk100_so101_single_arm_6dof
+# -> data/thakk100_pink_duck_in_a_box
 ```
 
 On a second run that directory *does* exist, so the script auto-switches to
@@ -88,15 +109,25 @@ Recording now adds:
 
 | key | meaning |
 |---|---|
-| `s` | label the episode just saved **success** |
-| `f` | label it **failure** |
-| `d` | **discard** this take and re-record it |
-| `n` / right | end the episode early, keep it (LeRobot's own) |
-| `r` / left | discard and re-record (LeRobot's own) |
-| `q` / esc | stop (LeRobot's own) |
+| key | during the episode | during the reset |
+|---|---|---|
+| `s` | label **success** and end it now | (re)label success, skip rest of reset |
+| `f` | label **failure** and end it now | (re)label failure, skip rest of reset |
+| `d` | **discard** this take, re-record | discard the episode just recorded, re-record |
+| `n` / right | end now, keep **unlabeled** (LeRobot's own) | skip rest of reset |
+| `r` / left | discard and re-record (LeRobot's own) | same |
+| `q` / esc | stop, finalize, exit (LeRobot's own) | same |
 
-Press `s` or `f` any time; the label is attached to the episode after it is
-committed, so the index is always right. The banner at startup repeats the keys.
+LeRobot calls `save_episode()` only *after* the reset phase, so a label pressed
+during the episode or its reset lands on that episode; one pressed after the
+`[outcome] unlabeled` line applies to the *next* one. A discard also clears any
+label pressed during the dropped take. The banner at startup repeats the keys.
+
+Keys come from the **terminal** (pynput is not installed, so LeRobot uses its
+TTY reader): keep the recording terminal focused, not the Rerun window.
+
+Typical cycle: do the task → `s`/`f` → reset the scene → `n` to skip the rest
+of the 60 s reset.
 
 These hook into LeRobot's real key pipeline — `create_key_listener` is the single
 seam both backends (pynput and the terminal reader) funnel through — rather than
@@ -112,12 +143,13 @@ prompting with `input()`, which would fight the key listener for the TTY.
                     "recorded_at": "2026-09-25T22:04:11+0000"}}}
 ```
 
-The dataset stays loadable by stock LeRobot, the labels survive a LeRobot
-upgrade, and **nothing is deleted**. A failed or discarded episode is still on
-disk; filter at train time instead.
+The dataset stays loadable by stock LeRobot and the labels survive a LeRobot
+upgrade. Failed episodes stay on disk; filter at train time. A discarded (`d`)
+take is never saved -- LeRobot drops its buffer. `n_frames` is that episode's
+own length.
 
 ```bash
-python scripts/episode_outcomes.py --root data/thakk100_so101_single_arm_6dof
+python scripts/episode_outcomes.py --root data/thakk100_pink_duck_in_a_box
 python scripts/episode_outcomes.py --root ... --export successes.csv --only success
 ```
 

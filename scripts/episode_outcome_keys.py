@@ -9,8 +9,8 @@ LeRobot routes every key from both backends (pynput and the terminal reader)
 through one ``dispatch`` callback passed to ``create_key_listener``. This wraps
 that callback so:
 
-    s   label the episode just saved as success
-    f   label it as failure
+    s   label the current episode success and end it (or its reset) now
+    f   label it failure and end it (or its reset) now
     d   discard the in-progress episode and re-record it (alias of LeRobot's
         own left-arrow / 'r' re-record)
     n / right   end the episode early and keep it
@@ -22,8 +22,8 @@ committed the episode, so the index is final and correct. Labels go to
 ``meta/outcomes.json`` (see scripts/episode_outcomes.py) -- the dataset schema
 is untouched, so stock LeRobot can still train on it.
 
-Failed and discarded episodes stay on disk. Nothing is deleted; filter at train
-time instead.
+Failed episodes stay on disk; filter at train time. A discarded ('d') take is
+never saved -- LeRobot drops its buffer and re-records.
 """
 
 from __future__ import annotations
@@ -44,7 +44,8 @@ _EVENTS: dict = {}
 _PENDING: dict[str, str] = {}
 
 HELP = (
-    "\n  episode controls:  s=success  f=failure  d/n=discard+re-record  q=quit\n"
+    "\n  episode controls:  s=success+end  f=failure+end  d=discard+re-record  "
+    "n=end+keep  q=quit\n"
 )
 
 
@@ -60,9 +61,11 @@ def install() -> bool:
     _orig_init = keyboard_input.init_keyboard_listener
 
     def init_capturing():
+        global _EVENTS
         listener, events = _orig_init()
-        _EVENTS.clear()
-        _EVENTS.update(events)
+        # Alias LeRobot's dict, never copy it: record_loop reads THIS object, so
+        # a copy would swallow 'd' (rerecord/exit_early) and the profile stop.
+        _EVENTS = events
         # LeRobot's events dict has no outcome slot; add ours.
         _EVENTS.setdefault("episode_outcome", None)
         print(HELP, flush=True)
@@ -85,17 +88,19 @@ def install() -> bool:
             if key == "s":
                 _PENDING["outcome"] = "success"
                 _EVENTS["episode_outcome"] = "success"
+                _EVENTS["exit_early"] = True
                 print("\n  [outcome] success", flush=True)
                 return
             if key == "f":
                 _PENDING["outcome"] = "failure"
                 _EVENTS["episode_outcome"] = "failure"
+                _EVENTS["exit_early"] = True
                 print("\n  [outcome] failure", flush=True)
                 return
             if key == "d":
                 # Same as LeRobot's own left/'r': drop this take, try again.
-                _PENDING["outcome"] = "discarded"
-                _EVENTS["episode_outcome"] = "discarded"
+                # The take is never saved, so there is nothing to label; any
+                # s/f already pressed is cleared with the buffer (see step 4).
                 _EVENTS["rerecord_episode"] = True
                 _EVENTS["exit_early"] = True
                 print("\n  [outcome] discarded - re-recording this episode", flush=True)
@@ -110,18 +115,20 @@ def install() -> bool:
     _orig_save = LeRobotDataset.save_episode
 
     def save_and_label(self, *a, **kw):
+        frames_before = int(getattr(self, "num_frames", 0))
         result = _orig_save(self, *a, **kw)
         outcome = _PENDING.pop("outcome", None) or _EVENTS.get("episode_outcome")
         _EVENTS["episode_outcome"] = None
         if outcome is None:
-            print("\n  [outcome] unlabeled (press s or f before the next episode to label it)",
-                  flush=True)
+            print("\n  [outcome] unlabeled (label with s/f DURING an episode or its reset; "
+                  "a key pressed now applies to the next episode)", flush=True)
             return result
         idx = int(getattr(self, "num_episodes", 1)) - 1
         try:
             episode_outcomes.record(
                 str(self.root), idx, outcome,
-                n_frames=getattr(self, "num_frames", None),
+                # num_frames is the dataset total; the delta is this episode.
+                n_frames=int(getattr(self, "num_frames", 0)) - frames_before,
             )
             print(f"  [outcome] episode {idx} -> {outcome}", flush=True)
         except Exception as e:  # noqa: BLE001
@@ -129,5 +136,16 @@ def install() -> bool:
         return result
 
     LeRobotDataset.save_episode = save_and_label
+
+    # 4. A re-recorded take is thrown away, so is any label pressed during it;
+    #    otherwise it would land on the retake.
+    _orig_clear = LeRobotDataset.clear_episode_buffer
+
+    def clear_and_unlabel(self, *a, **kw):
+        _PENDING.pop("outcome", None)
+        _EVENTS["episode_outcome"] = None
+        return _orig_clear(self, *a, **kw)
+
+    LeRobotDataset.clear_episode_buffer = clear_and_unlabel
     logger.info("episode outcome controls installed (s/f/d)")
     return True

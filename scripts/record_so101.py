@@ -144,14 +144,20 @@ def main() -> int:
     import threading
     import time as _time
 
-    t0 = _time.perf_counter()
-    stop_at = t0 + profile_for
+    # The window starts at the FIRST recorded frame, not at launch: connect()
+    # plus camera warmup takes ~10s+, which would otherwise eat the window.
+    loop_t0: list[float] = []
+    loop_t1: list[float] = []
 
     def stopper():
+        while "dataset.add_frame" not in record_loop_profile.STATS:
+            _time.sleep(0.05)
+        loop_t0.append(_time.perf_counter())
+        _time.sleep(profile_for)
         # episode_outcome_keys already wraps init_keyboard_listener and holds
         # the live events dict, so reuse it rather than re-instrumenting.
-        _time.sleep(max(stop_at - _time.perf_counter(), 0))
         ev = getattr(episode_outcome_keys, "_EVENTS", None)
+        loop_t1.append(_time.perf_counter())
         if ev:
             ev["stop_recording"] = True
             ev["exit_early"] = True
@@ -165,9 +171,13 @@ def main() -> int:
     except KeyboardInterrupt:
         rc = 0
     finally:
-        wall = _time.perf_counter() - t0
-        loops = max(int(record_loop_profile.STATS.get("dataset.add_frame", [1])[0]), 1)
-        profiler.report(loops, wall)
+        loops = int(record_loop_profile.STATS.get("dataset.add_frame", [0])[0])
+        if loops and loop_t0:
+            # End at the stop signal, not now: save + disconnect are not the loop.
+            end = loop_t1[0] if loop_t1 else _time.perf_counter()
+            profiler.report(loops, end - loop_t0[0])
+        else:
+            print("\n[profile] the record loop never ran; no breakdown.", flush=True)
     return rc
 
 

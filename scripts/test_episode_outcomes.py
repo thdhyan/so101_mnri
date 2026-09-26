@@ -65,28 +65,31 @@ def main() -> int:
         FAILS.append("no dispatch captured")
         return 1
 
-    # events dict is shared with ours (captured by the patched init)
-    check(events is E._EVENTS or events is not None, "events dict captured")
-    E._EVENTS.update(events)
-    E._EVENTS["episode_outcome"] = None
+    # Must be the SAME object LeRobot's record_loop reads, not a copy: a copy
+    # silently swallows 'd' and the --profile stop.
+    check(events is E._EVENTS, "events dict is LeRobot's own, not a copy")
 
     # --- key behaviour -----------------------------------------------------
     print("\n  key handling:")
     E._PENDING.clear()
+    events["exit_early"] = False
     dispatch("s")
     check(E._PENDING.get("outcome") == "success", "'s' -> success")
+    check(events.get("exit_early") is True, "'s' ends the episode")
 
     E._PENDING.clear()
+    events["exit_early"] = False
     dispatch("f")
     check(E._PENDING.get("outcome") == "failure", "'f' -> failure")
+    check(events.get("exit_early") is True, "'f' ends the episode")
 
     E._PENDING.clear()
     E._EVENTS["rerecord_episode"] = False
     E._EVENTS["exit_early"] = False
     dispatch("d")
-    check(E._PENDING.get("outcome") == "discarded", "'d' -> discarded")
-    check(E._EVENTS.get("rerecord_episode") is True, "'d' requests a re-record")
-    check(E._EVENTS.get("exit_early") is True, "'d' ends the episode early")
+    check(E._PENDING.get("outcome") is None, "'d' leaves no label behind")
+    check(events.get("rerecord_episode") is True, "'d' requests a re-record (LeRobot's dict)")
+    check(events.get("exit_early") is True, "'d' ends the episode early (LeRobot's dict)")
 
     # passthrough: LeRobot's own keys must still work
     print("\n  passthrough:")
@@ -127,10 +130,18 @@ def main() -> int:
             E._EVENTS["episode_outcome"] = outcome
             ds.save_episode()
 
+        # 's' during a take that is then re-recorded must not label the retake.
+        ds.add_frame(make_frame())
+        dispatch("s")
+        ds.clear_episode_buffer()
+        check(E._PENDING.get("outcome") is None and E._EVENTS["episode_outcome"] is None,
+              "re-record clears a label pressed during the discarded take")
+
         data = json.loads((root / "meta" / "outcomes.json").read_text())
         eps = data["episodes"]
         check(eps.get("0", {}).get("outcome") == "success", "episode 0 labelled success")
         check(eps.get("1", {}).get("outcome") == "failure", "episode 1 labelled failure")
+        check(eps.get("1", {}).get("n_frames") == 1, "n_frames is the episode's own length")
         check("2" not in eps, "episode 2 left unlabeled when no key pressed")
 
         # The dataset schema must be untouched: outcomes live in a sidecar, so

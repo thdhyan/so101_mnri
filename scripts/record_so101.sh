@@ -73,7 +73,7 @@ for arg in "$@"; do
     *)
       echo "ERROR: unknown argument '$arg'." >&2
       echo "       record_so101.sh takes no positional arguments." >&2
-      echo "       Only flag: --dry-run" >&2
+      echo "       Flags: --dry-run, --profile[=SECONDS]" >&2
       exit 2 ;;
   esac
 done
@@ -107,6 +107,9 @@ fi
 # the bare parent (passing "data" makes LeRobot try to mkdir data/, which fails
 # with FileExistsError on the second run).
 DATA_PARENT="${DATA_PARENT:-data}"
+# --profile ends mid-episode and LeRobot still saves that partial take, so keep
+# it out of the real dataset.
+[[ -n "$PROFILE" ]] && REPO_ID="${REPO_ID}_profile"
 DATASET_ROOT="${DATA_PARENT}/$(printf '%s' "$REPO_ID" | tr '/' '_')"
 
 CALIB_DIR="$REPO_ROOT/robots/so101/calibration"
@@ -187,7 +190,7 @@ cat <<EOF
  live view $(if [[ "$DISPLAY_DATA" != "true" ]]; then echo "OFF (DISPLAY_DATA=$DISPLAY_DATA)";
              elif [[ "$USE_WEB" == "true" ]]; then echo "browser  http://localhost:${DEBUG_PORT:-9090}/?url=rerun%2Bhttp%3A%2F%2Flocalhost%3A${GRPC_PORT}%2Fproxy";
              else echo "native Rerun window (spawned automatically)"; fi)
- labels    s=success  f=failure  d=discard+re-record  n=end episode  q=quit
+ labels    s=success+end  f=failure+end  d=discard+re-record  n=end+keep  q=quit
 ============================================================
 
 EOF

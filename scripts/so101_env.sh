@@ -76,10 +76,12 @@ WARMUP_S=5
 # files, 5-DOF (no wrist_roll) at 640x480 -- not a LeRobotDataset, and not
 # compatible with the 6-DOF arms. Point at a fresh repo_id so the two formats
 # never land in the same directory.
-REPO_ID=thakk100/so101_single_arm_6dof
+# Fresh dataset as of 2026-09-25 (the earlier so101_single_arm_6dof takes were
+# deleted before the real collection).
+REPO_ID=thakk100/pink_duck_in_a_box
 RECORD_TASK="push the duck into the square tape"
 # Parent directory only. The record script appends REPO_ID with "/" -> "_", so
-# the dataset lands in data/thakk100_so101_single_arm_6dof. LeRobot's
+# the dataset lands in data/thakk100_pink_duck_in_a_box. LeRobot's
 # --dataset.root is the dataset directory itself and must not exist yet, which
 # is why passing the bare parent here would fail.
 DATA_PARENT=data
