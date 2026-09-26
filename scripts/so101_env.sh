@@ -43,11 +43,20 @@ WIDTH=640
 HEIGHT=480
 FOURCC=MJPG
 
-# 15 Hz, not 30. This is a laptop; two cameras + video encoding + the live
-# debug view cannot hold 30 Hz. fps is written into meta/info.json and drives
-# delta_timestamps at train time, so pick a rate the loop genuinely sustains
-# rather than one it drops frames trying to reach.
+# 15 Hz dataset/control rate, not 30. This is a laptop; two cameras + video
+# encoding + the live debug view cannot hold 30 Hz. FPS is written into
+# meta/info.json and drives delta_timestamps at train time, so pick a rate the
+# loop genuinely sustains rather than one it drops frames trying to reach.
 FPS=15
+
+# The CAMERA capture rate is a separate thing and must be what the hardware
+# actually does. Both cameras expose exactly one frame interval at 640x480 --
+# `Interval: Discrete 0.033s (30.000 fps)` -- and OpenCVCamera._validate_fps
+# uses math.isclose(..., rel_tol=1e-3), so asking for 15 raises
+#   RuntimeError: OpenCVCamera(4) failed to set fps=15 (actual_fps=30.0).
+# The camera streams at 30 and the 15 Hz loop takes the latest frame from it via
+# read_latest(), so you get 15 evenly spaced distinct frames per second.
+CAMERA_FPS=30
 
 # Video encoding is the single biggest cost in the loop. Streaming encoding
 # moves it off the critical path instead of doing it all at save_episode.

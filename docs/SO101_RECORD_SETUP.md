@@ -396,6 +396,39 @@ bus. With `streaming_encoding=False` it timed out doing 45 frames in 300 s.
 `--dataset.streaming_encoding=true --dataset.encoder_threads=2` moves AV1
 encoding off the critical path and took it to 0.9 ms/frame.
 
+### Camera fps and dataset fps are different knobs
+
+```
+RuntimeError: OpenCVCamera(4) failed to set fps=15 (actual_fps=30.0).
+```
+
+Both cameras expose exactly **one** frame interval at 640x480:
+
+```
+Size: Discrete 640x480
+    Interval: Discrete 0.033s (30.000 fps)
+```
+
+and `OpenCVCamera._validate_fps` compares with `math.isclose(..., rel_tol=1e-3)`,
+so requesting anything but 30 raises at connect time. There is no 15 fps mode to
+select.
+
+So the two rates are configured separately:
+
+| setting | value | meaning |
+|---|---|---|
+| `CAMERA_FPS` | 30 | what the camera is asked to stream (hardware-limited) |
+| `FPS` | 15 | dataset + control rate; `--dataset.fps`, baked into `meta/info.json` |
+
+The camera delivers 30 fps and the 15 Hz loop takes the latest frame from it via
+`read_latest()`, yielding 15 evenly spaced distinct frames per second. LeRobot's
+`sanity_check_dataset_robot_compatibility` compares the existing dataset's fps
+against the *config* fps, not against the camera's, so the two need not match.
+
+`check_record_config.py` queries `v4l2-ctl --list-formats-ext` for the real
+intervals and fails if `CAMERA_FPS` is not among them, so this is caught before
+the arms are live rather than after `connect()`.
+
 Also note: because the dataset's `fps` and camera shape are baked into
 `meta/info.json` and drive `delta_timestamps` at train time, resuming a dataset
 with different values produces episodes that disagree about their own timing.

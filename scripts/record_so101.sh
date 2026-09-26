@@ -47,6 +47,7 @@ WRIST_CAM="${WRIST_CAM:-2}"
 WIDTH="${WIDTH:-640}"
 HEIGHT="${HEIGHT:-480}"
 FPS="${FPS:-15}"
+CAMERA_FPS="${CAMERA_FPS:-30}"
 FOURCC="${FOURCC:-MJPG}"
 WARMUP_S="${WARMUP_S:-5}"
 STREAMING_ENCODING="${STREAMING_ENCODING:-true}"
@@ -126,10 +127,11 @@ fi
 
 # The wrist cam is a plain /dev/videoN node. Odd-numbered nodes are the UVC
 # metadata nodes, not capture devices, so only even indices really work.
-# warmup_s is per-camera; see the note in so101_env.sh.
+# Camera fps is CAMERA_FPS (the hardware's only supported rate), NOT the
+# dataset FPS -- see the note in so101_env.sh. warmup_s is per-camera.
 CAMERAS=$(printf '{"global":{"type":"opencv","index_or_path":%s,"fps":%s,"width":%s,"height":%s,"fourcc":"%s","warmup_s":%s},"wrist":{"type":"opencv","index_or_path":%s,"fps":%s,"width":%s,"height":%s,"fourcc":"%s","warmup_s":%s}}' \
-  "$GLOBAL_CAM" "$FPS" "$WIDTH" "$HEIGHT" "$FOURCC" "$WARMUP_S" \
-  "$WRIST_CAM"  "$FPS" "$WIDTH" "$HEIGHT" "$FOURCC" "$WARMUP_S")
+  "$GLOBAL_CAM" "$CAMERA_FPS" "$WIDTH" "$HEIGHT" "$FOURCC" "$WARMUP_S" \
+  "$WRIST_CAM"  "$CAMERA_FPS" "$WIDTH" "$HEIGHT" "$FOURCC" "$WARMUP_S")
 
 cat <<EOF
 ============================================================
@@ -138,7 +140,7 @@ cat <<EOF
  leader    $LEADER_PORT  (serial $LEADER_SERIAL, id=$LEADER_ID)
  follower  $FOLLOWER_PORT  (serial $FOLLOWER_SERIAL, id=$FOLLOWER_ID)
  cameras   global=/dev/video$GLOBAL_CAM  wrist=/dev/video$WRIST_CAM
-           ${WIDTH}x${HEIGHT} @ ${FPS}fps $FOURCC
+           ${WIDTH}x${HEIGHT} @ ${CAMERA_FPS}fps capture, recorded at ${FPS}fps
  dataset   $REPO_ID  -> $DATASET_ROOT
  task      "$RECORD_TASK"
  episodes  $NUM_EPISODES x ${EPISODE_TIME_S}s

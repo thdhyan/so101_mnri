@@ -58,6 +58,40 @@ def supported_modes(dev: int, w: int, h: int) -> str:
     return f"NOT in supported list (requested {w}x{h})"
 
 
+def supported_fps(dev: int, w: int, h: int) -> list[float]:
+    """Frame rates the device actually offers at (w,h).
+
+    Worth checking separately from the size: both SO-101 cameras expose exactly
+    one interval at 640x480 (0.033s / 30 fps), and OpenCVCamera._validate_fps
+    compares with math.isclose(..., rel_tol=1e-3), so asking for anything else
+    raises at connect time.
+    """
+    proc = subprocess.run(
+        ["v4l2-ctl", "-d", f"/dev/video{dev}", "--list-formats-ext"],
+        capture_output=True, text=True, check=False,
+    )
+    if proc.returncode != 0:
+        return []
+    out: list[float] = []
+    keep = False
+    for ln in proc.stdout.splitlines():
+        if f"Size: Discrete {w}x{h}" in ln:
+            keep = True
+            continue
+        if not keep:
+            continue
+        if "Interval: Discrete" in ln:
+            # "Interval: Discrete 0.033s (30.000 fps)" -- the value inside the
+            # parens is ALREADY the frame rate, so use it directly.
+            try:
+                out.append(round(float(ln.split("(")[1].split()[0].rstrip(")")), 3))
+            except (IndexError, ValueError):
+                pass
+        elif "Size: Discrete" in ln:
+            break
+    return sorted(set(out))
+
+
 def main() -> int:
     env = env_defaults()
 
@@ -72,7 +106,8 @@ def main() -> int:
     ap.add_argument("--wrist-cam", type=int, default=int(env.get("WRIST_CAM", 2)))
     ap.add_argument("--width", type=int, default=int(env.get("WIDTH", 1280)))
     ap.add_argument("--height", type=int, default=int(env.get("HEIGHT", 720)))
-    ap.add_argument("--fps", type=int, default=int(env.get("FPS", 30)))
+    ap.add_argument("--fps", type=int, default=int(env.get("FPS", 15)))
+    ap.add_argument("--camera-fps", type=int, default=int(env.get("CAMERA_FPS", 30)))
     ap.add_argument("--fourcc", default=env.get("FOURCC", "MJPG"))
     ap.add_argument("--warmup-s", type=int, default=int(env.get("WARMUP_S", 5)))
     ap.add_argument("--repo-id", default=env.get("REPO_ID", "thakk100/so101_single_arm_6dof"))
@@ -153,7 +188,20 @@ def main() -> int:
             continue
         status = supported_modes(dev, args.width, args.height)
         flag = "FAIL" if "NOT in" in status else "ok"
-        print(f"[{flag}]   {role:8s} /dev/video{dev} {args.width}x{args.height} {args.fourcc}: {status}")
+        rates = supported_fps(dev, args.width, args.height)
+        if rates:
+            if args.camera_fps in rates:
+                rate_line = f"{args.camera_fps} fps supported (of {rates})"
+            else:
+                rate_line = (f"CAMERA_FPS={args.camera_fps} NOT supported; "
+                             f"device offers {rates} -> connect() will raise")
+                flag = "FAIL"
+        else:
+            rate_line = "could not query frame intervals"
+        print(f"[{flag}]   {role:8s} /dev/video{dev} {args.width}x{args.height} "
+              f"{args.fourcc}: {status}; {rate_line}")
+        print(f"           (dataset records at {args.fps} fps, sampled from the "
+              f"{args.camera_fps} fps stream)")
 
     # --- does LeRobot accept this exact config? ---
     print("\n--- draccus parse ---")
@@ -163,7 +211,7 @@ def main() -> int:
         role: {
             "type": "opencv",
             "index_or_path": dev,
-            "fps": args.fps,
+            "fps": args.camera_fps,
             "width": args.width,
             "height": args.height,
             "fourcc": args.fourcc,
