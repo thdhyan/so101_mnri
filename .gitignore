@@ -6,6 +6,12 @@ rl/runs/
 MUJOCO_LOG.TXT
 isaacsim/
 *.egg-info/
+
+# Real-robot recordings and camera-tuning output. data/ holds multi-GB
+# LeRobotDatasets (video + parquet) and the legacy hand-rolled .npz episodes;
+# none of it belongs in git.
+data/
+
 images/*
 !images/single_arm_overview.png
 !images/dual_arm_overview.png

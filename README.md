@@ -128,6 +128,22 @@ python -m vla.deploy --backend smolvla --checkpoint vla/runs/smolvla/last
 
 Full plan: **[IL_PLAN.md](IL_PLAN.md)** | Pipeline details: **[vla/](vla/)**
 
+## Real-robot data collection (single arm)
+
+Leader arm → follower arm + global/wrist cameras → `LeRobotDataset`, with a
+live view in a browser Web UI.
+
+```bash
+python scripts/so101_debug_server.py     # terminal 1 — Rerun sink + Web UI :9090
+bash scripts/record_so101.sh             # terminal 2 — record
+```
+
+Then open **http://localhost:9090**. Hardware assignment lives in
+`scripts/so101_env.sh`.
+
+Full guide: **[docs/SO101_RECORD_SETUP.md](docs/SO101_RECORD_SETUP.md)** ·
+capture→train→deploy preprocessing: **[docs/PREPROCESSING.md](docs/PREPROCESSING.md)**
+
 ## Teleoperation
 
 ```bash
