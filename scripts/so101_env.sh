@@ -33,10 +33,26 @@ FOLLOWER_ID=mnri_arms_1_follower
 GLOBAL_CAM=4    # 'USB Camera' 1920x1080, aimed at the workspace
 WRIST_CAM=2     # 'Innomaker-U20CAM-720P', on the follower's wrist
 
-WIDTH=1280
-HEIGHT=720
-FPS=30
+# 640x480, not 1280x720. Measured on this laptop: the camera read costs ~32 ms
+# at ANY resolution (it is bound by the 30 fps frame interval, not by decode),
+# but every pixel after that costs real time -- dataset video encoding, the
+# rerun JPEG per frame, and the image-writer queues. 720p made the record loop
+# run at 5 Hz, which LeRobot correctly warns drops frames and destabilises
+# control. 640x480 cuts that pixel load ~4x.
+WIDTH=640
+HEIGHT=480
 FOURCC=MJPG
+
+# 15 Hz, not 30. This is a laptop; two cameras + video encoding + the live
+# debug view cannot hold 30 Hz. fps is written into meta/info.json and drives
+# delta_timestamps at train time, so pick a rate the loop genuinely sustains
+# rather than one it drops frames trying to reach.
+FPS=15
+
+# Video encoding is the single biggest cost in the loop. Streaming encoding
+# moves it off the critical path instead of doing it all at save_episode.
+STREAMING_ENCODING=true
+ENCODER_THREADS=2
 # LeRobot's connect() loop waits this long for the first frame, and requires a
 # FRESH frame each ~100ms (the event is cleared after every read). The wrist
 # camera measured 0.85s for its first frame at 1280x720 MJPG, so warmup_s=1
@@ -59,7 +75,11 @@ RECORD_TASK="push the duck into the square tape"
 # is why passing the bare parent here would fail.
 DATA_PARENT=data
 NUM_EPISODES=100
-EPISODE_TIME_S=30
+EPISODE_TIME_S=20
+# Dataset is currently empty (0 episodes). Re-resolving this and running
+# record_so101.sh again would mix two different capture settings into one
+# dataset, so the launcher refuses unless this is flipped deliberately.
+ALLOW_MIXED_CAPTURE_SETTINGS=false
 
 # --- debug server ----------------------------------------------------------
 GRPC_PORT=9876     # producers (lerobot-record) send log data here

@@ -356,6 +356,51 @@ If a camera does still fail, the process aborts with `FATAL: exception not
 rethrown` / `Aborted (core dumped)` during teardown. That is a LeRobot/driver
 cleanup bug, not the original fault — read the traceback above it.
 
+## Capture rate — why 15 Hz and 640x480
+
+The first real recording attempt ran the loop at **5 Hz** against a 30 Hz target,
+and LeRobot's warning is the correct response to ignore:
+
+```
+Record loop is running slower (5.0 Hz) than the target FPS (30 Hz). Dataset
+frames might be dropped and robot control might be unstable.
+```
+
+Recording at a rate the loop cannot hold is not a compromise, it is corruption:
+frames get dropped and the control loop goes unstable. Measured on this laptop:
+
+| component | 1280x720 @ 30 | 640x480 @ 15 + streaming |
+|---|---|---|
+| both cameras, sequential read | 32 ms | 33 ms |
+| rerun JPEG, 2 images | 37 ms | 13 ms |
+| **`dataset.add_frame`** | **>6600 ms** | **0.9 ms** |
+| loop budget | unusable | **47.5 ms → 21 Hz** |
+| serial (leader read) | 0.9 ms | 0.9 ms |
+
+Two findings worth keeping:
+
+**Camera read cost is resolution-independent.** It is 32.1–32.3 ms at
+1280x720, 960x540, 800x600, 640x480 and 640x360 alike — because `cap.read()`
+blocks until the camera's next frame, and the hardware delivers at ~30 fps.
+Dropping resolution does not speed up the *read*. It does cut everything
+downstream, where the pixels actually cost something.
+
+**Reading both cameras together costs the same as reading one** (32.2 ms vs
+32.4 ms) — the second read returns an already-buffered frame. So two cameras are
+not a bandwidth problem, and moving them to separate USB ports changed nothing.
+`SOFollower.get_observation()` uses `cam.read_latest()` anyway, which is
+non-blocking and served from each camera's background thread.
+
+**`add_frame` was the real bottleneck**, and it is not the camera or the serial
+bus. With `streaming_encoding=False` it timed out doing 45 frames in 300 s.
+`--dataset.streaming_encoding=true --dataset.encoder_threads=2` moves AV1
+encoding off the critical path and took it to 0.9 ms/frame.
+
+Also note: because the dataset's `fps` and camera shape are baked into
+`meta/info.json` and drive `delta_timestamps` at train time, resuming a dataset
+with different values produces episodes that disagree about their own timing.
+`record_so101.sh` refuses unless `ALLOW_MIXED_CAPTURE_SETTINGS=true`.
+
 ## Bus health
 
 ```bash

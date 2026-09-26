@@ -44,11 +44,13 @@ fi
 
 GLOBAL_CAM="${GLOBAL_CAM:-4}"
 WRIST_CAM="${WRIST_CAM:-2}"
-WIDTH="${WIDTH:-1280}"
-HEIGHT="${HEIGHT:-720}"
-FPS="${FPS:-30}"
+WIDTH="${WIDTH:-640}"
+HEIGHT="${HEIGHT:-480}"
+FPS="${FPS:-15}"
 FOURCC="${FOURCC:-MJPG}"
 WARMUP_S="${WARMUP_S:-5}"
+STREAMING_ENCODING="${STREAMING_ENCODING:-true}"
+ENCODER_THREADS="${ENCODER_THREADS:-2}"
 
 REPO_ID="${REPO_ID:-thakk100/so101_single_arm_6dof}"
 RECORD_TASK="${RECORD_TASK:-push the duck into the square tape}"
@@ -96,6 +98,25 @@ RESUME=false
 if [[ -d "$DATASET_ROOT" ]]; then
   if [[ -f "$DATASET_ROOT/meta/info.json" ]]; then
     RESUME=true
+    # fps and the camera shape are baked into meta/info.json and drive
+    # delta_timestamps at train time. Resuming with different values silently
+    # produces a dataset whose episodes disagree about their own timing.
+    if [[ "${ALLOW_MIXED_CAPTURE_SETTINGS:-false}" != "true" ]]; then
+      have_fps="$("$PY" -c "import json;print(json.load(open('$DATASET_ROOT/meta/info.json')).get('fps'))" 2>/dev/null || echo "?")"
+      have_shape="$("$PY" -c "
+import json
+f=json.load(open('$DATASET_ROOT/meta/info.json'))['features']
+k=[x for x in f if x.startswith('observation.images')]
+print(sorted(f[x]['shape'][1] for x in k)[0] if k else '?')" 2>/dev/null || echo "?")"
+      if [[ "$have_fps" != "$FPS" || "$have_shape" != "$WIDTH" ]]; then
+        echo "ERROR: $DATASET_ROOT was created at ${have_fps} fps / ${have_shape}px wide," >&2
+        echo "       but this run is configured for ${FPS} fps / ${WIDTH}px wide." >&2
+        echo "       Mixing them corrupts the dataset's timing." >&2
+        echo "       Either restore the original settings, start a new REPO_ID, or set" >&2
+        echo "       ALLOW_MIXED_CAPTURE_SETTINGS=true if you really mean it." >&2
+        exit 1
+      fi
+    fi
   else
     echo "ERROR: $DATASET_ROOT exists but has no meta/info.json." >&2
     echo "       It is not a LeRobot dataset. Move it aside, or point DATA_PARENT/REPO_ID elsewhere." >&2
@@ -150,6 +171,8 @@ exec "$PY" "$REPO_ROOT/scripts/record_so101.py" \
   --dataset.single_task="$RECORD_TASK" \
   --dataset.root="$DATASET_ROOT" \
   --dataset.fps="$FPS" \
+  --dataset.streaming_encoding="$STREAMING_ENCODING" \
+  --dataset.encoder_threads="$ENCODER_THREADS" \
   --dataset.num_episodes="$NUM_EPISODES" \
   --dataset.episode_time_s="$EPISODE_TIME_S" \
   --resume="$RESUME" \
