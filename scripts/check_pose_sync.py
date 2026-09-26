@@ -58,7 +58,15 @@ def resolve_ports() -> tuple[str, str]:
 
 
 def read_arm(port: str, arm: str) -> dict[str, float] | None:
-    """Positions in DEGREES, via LeRobot's own normalisation. Never writes."""
+    """Positions in DEGREES, via LeRobot's own normalisation. Never writes.
+
+    Reads RAW counts first and rejects the sample if any is outside
+    0..4095. The STS3215 position register is a 12-bit value, so a raw count
+    outside that range is provably a corrupt read. This matters: the Feetech
+    bus on this rig occasionally returns garbage (an observed follower
+    shoulder_lift of -763), and normalising garbage produces nonsense joint
+    angles that look exactly like a 262 deg pose mismatch.
+    """
     try:
         from lerobot.motors import Motor, MotorNormMode
         from lerobot.motors.feetech import FeetechMotorsBus
@@ -77,20 +85,61 @@ def read_arm(port: str, arm: str) -> dict[str, float] | None:
                  MotorNormMode.DEGREES if n != "gripper" else MotorNormMode.RANGE_0_100)
         for i, n in enumerate(JOINTS, 1)
     }
+
+    bus = None
     try:
         bus = FeetechMotorsBus(port=port, motors=motors, calibration=cal)
         # handshake=False: we only want to read, and the handshake refuses to
         # connect when any motor is missing.
         bus.connect(handshake=False)
-        pos = bus.sync_read("Present_Position", num_retry=2)
-        bus.disconnect()
-        return {k: float(v) for k, v in pos.items()}
+        for attempt in range(4):
+            raw = bus.sync_read("Present_Position", normalize=False, num_retry=2)
+            bad = [n for n, v in raw.items() if not (0 <= float(v) <= 4095)]
+            if not bad:
+                # Re-read in normalised units only once the raw sample is sane.
+                return {k: float(v) for k, v in bus.sync_read("Present_Position", num_retry=2).items()}
+            print(f"  [{arm}] corrupt read on {', '.join(bad)} "
+                  f"(raw {[round(float(raw[b]), 1) for b in bad]}), retrying "
+                  f"{attempt + 1}/4", file=sys.stderr)
+        print(f"ERROR: {arm} on {port} returned corrupt counts 4x in a row. "
+              f"That is a bus/hardware fault, not a pose problem.", file=sys.stderr)
+        return None
     except Exception as e:  # noqa: BLE001
         print(f"ERROR reading {arm} on {port}: {type(e).__name__}: {e}", file=sys.stderr)
         return None
+    finally:
+        if bus is not None:
+            try:
+                bus.disconnect()
+            except Exception:  # noqa: BLE001
+                pass
 
 
-def report(leader: dict[str, float], follower: dict[str, float], max_delta: float) -> float:
+def travel_pct(arm: str, joint: str, deg: float) -> float | None:
+    """How far through its calibrated range a joint is, 0-100.
+
+    Inverse of LeRobot's DEGREES normalisation
+    (MotorsBus._normalize), which is NOT span- or homing-based:
+
+        mid      = (range_min + range_max) / 2
+        max_res  = model_resolution_table[model] - 1      # sts3215 -> 4095
+        deg      = (raw - mid) * 360 / max_res
+
+    so  raw = deg * max_res / 360 + mid,  and frac = (raw - range_min)/span.
+    """
+    fpath = CALIB_DIR / f"mnri_arms_1_{arm}.json"
+    if not fpath.is_file():
+        return None
+    c = json.load(open(fpath))[joint]
+    span = c["range_max"] - c["range_min"]
+    if span <= 0:
+        return None
+    mid = (c["range_min"] + c["range_max"]) / 2.0
+    raw = deg * 4095.0 / 360.0 + mid
+    return (raw - c["range_min"]) / span * 100.0
+
+
+def report(leader: dict[str, float], follower: dict[str, float], max_delta: float) -> tuple[float, list[str]]:
     deltas = {j: leader[j] - follower[j] for j in JOINTS}
     worst = max(abs(d) for d in deltas.values())
     print(f"{'joint':14s} {'leader':>9s} {'follower':>10s} {'delta':>9s}   move leader")
@@ -100,7 +149,23 @@ def report(leader: dict[str, float], follower: dict[str, float], max_delta: floa
         flag = "  <-- too far" if abs(d) > max_delta else ""
         print(f"{j:14s} {leader[j]:9.1f} {follower[j]:10.1f} {d:+9.1f}   {bar}{flag}")
     print(f"\nworst joint delta: {worst:.1f} deg   (gate: {max_delta:.1f} deg)")
-    return worst
+
+    at_limit = []
+    for arm, pos in (("leader", leader), ("follower", follower)):
+        for j in JOINTS:
+            pct = travel_pct(arm, j, pos[j])
+            if pct is None:
+                continue
+            if pct < 10 or pct > 90:
+                at_limit.append(f"{arm}.{j} at {pct:.0f}% of its calibrated travel")
+    if at_limit:
+        print("\njoints near the end of their travel (large moves will stall):")
+        for line in at_limit:
+            print(f"  - {line}")
+        print("  Reposition that arm by hand (torque off) away from its stops")
+        print("  before recording. The leader's range is deliberately narrower")
+        print("  than the follower's, so being at an end of it is often fine.")
+    return worst, at_limit
 
 
 def main() -> int:
@@ -121,7 +186,7 @@ def main() -> int:
             return 1
 
         print("=" * 64)
-        worst = report(leader, follower, args.max_delta)
+        worst, _ = report(leader, follower, args.max_delta)
         if worst > args.max_delta:
             print("\nUNSAFE TO START: bring the leader to the follower's pose.")
             print("  The first send_action() would command a large move, the six")
