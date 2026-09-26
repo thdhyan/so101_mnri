@@ -58,7 +58,22 @@ RECORD_TASK="${RECORD_TASK:-push the duck into the square tape}"
 NUM_EPISODES="${NUM_EPISODES:-100}"
 EPISODE_TIME_S="${EPISODE_TIME_S:-30}"
 DRY_RUN=""
-[[ "${1:-}" == "--dry-run" ]] && { DRY_RUN="--dry-run"; shift; }
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) DRY_RUN="--dry-run"; shift ;;
+    --watch)
+      echo "ERROR: --watch is a check_pose_sync.py flag, not a record flag." >&2
+      echo "       To watch the leader/follower alignment live, run:" >&2
+      echo "         python scripts/check_pose_sync.py --watch" >&2
+      exit 2 ;;
+    "") ;;
+    *)
+      echo "ERROR: unknown argument '$arg'." >&2
+      echo "       record_so101.sh takes no positional arguments." >&2
+      echo "       Only flag: --dry-run" >&2
+      exit 2 ;;
+  esac
+done
 
 GRPC_PORT="${GRPC_PORT:-9876}"
 
