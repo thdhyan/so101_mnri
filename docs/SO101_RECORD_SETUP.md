@@ -434,6 +434,54 @@ Also note: because the dataset's `fps` and camera shape are baked into
 with different values produces episodes that disagree about their own timing.
 `record_so101.sh` refuses unless `ALLOW_MIXED_CAPTURE_SETTINGS=true`.
 
+## Align the leader to the follower BEFORE recording
+
+This is the single most important operational step, and it is not a software
+problem.
+
+`record_loop` calls `robot.send_action()` on its **very first tick**, with
+whatever the leader currently reads. If the two arms are not near each other,
+that first command asks six servos to travel a long way against gravity. They
+stall, draw a large current, the supply rail sags, and the Feetech bus starts
+dropping packets. The whole thing presents as a flaky cable:
+
+```
+WARNING  Record loop is running slower (5.3 Hz) than the target FPS (15 Hz)
+ConnectionError: Failed to sync read 'Present_Position' on ids=[1, 2, 3, 4, 5, 6]
+                 after 3 tries. [TxRxResult] There is no status packet!
+ConnectionError: Failed to write 'Torque_Enable' on id_=1 with '0'
+                 after 6 tries. [TxRxResult] There is no status packet!
+FATAL: exception not rethrown
+Aborted (core dumped)
+```
+
+The second `ConnectionError` is only a consequence — the bus is already dead by
+the time `disconnect()` tries to release torque.
+
+Measured on 2026-09-25, which is what a 99° mismatch looks like:
+
+```
+joint             leader   follower     delta   move leader
+shoulder_pan       -15.7        1.5     -17.1   #####
+shoulder_lift     -104.7       -9.5     -95.3   ##############################
+elbow_flex         98.3       -0.9     +99.2   ##############################
+wrist_flex         64.4       52.1     +12.3   ####
+wrist_roll          6.2       10.2      -4.0   #
+gripper             1.4        1.7      -0.3
+```
+
+Check before every session:
+
+```bash
+python scripts/check_pose_sync.py --watch    # live, until aligned
+```
+
+`record_so101.sh` runs it as a preflight gate and **refuses to start** (exit 2)
+while any joint is more than `MAX_POSE_DELTA` (default 10°) off. It is
+read-only. Override with `SKIP_POSE_GATE=true` if you really mean it.
+
+Move the arm **in your hand**, not the one on the table.
+
 ## Bus health
 
 ```bash
@@ -497,6 +545,7 @@ but a LeRobot upgrade may pin it back.
 | `scripts/probe_arm_ports.py` | read-only joint-position stream per port |
 | `scripts/port_id_report.py` | which arm is on which port |
 | `scripts/tune_collection_cameras.py` | V4L2 exposure/format tuning + verify |
+| `scripts/check_pose_sync.py` | leader-vs-follower alignment gate (read-only) |
 | `scripts/dump_preprocessing_spec.py` | read the real spec out of a recorded dataset |
 
 ## Still to do before useful data

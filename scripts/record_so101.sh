@@ -155,6 +155,27 @@ EOF
 # Goal_Position := Present_Position before enabling torque (the follower's
 # EEPROM-backed goals read 0, which would otherwise command a slam into the
 # limits) and retries the per-motor enable with a settle gap between motors.
+
+# --- pose gate -------------------------------------------------------------
+# record_loop calls send_action() on its FIRST tick with whatever the leader
+# reads. If the two arms are far apart, that commands a large move: six servos
+# stall against gravity, the supply rail sags, and the Feetech bus drops
+# packets. That is exactly what produced the 5.3 Hz warning followed by
+# "no status packet" on every motor and then a failed torque-disable.
+#
+# This is READ-ONLY; it only refuses to start while the mismatch is dangerous.
+if [[ "${SKIP_POSE_GATE:-false}" != "true" && -z "$DRY_RUN" ]]; then
+  if ! "$PY" "$REPO_ROOT/scripts/check_pose_sync.py" --max-delta="${MAX_POSE_DELTA:-10}"; then
+    echo >&2
+    echo "ERROR: leader and follower are not aligned. Move the arm in your HAND" >&2
+    echo "       to match the pose of the arm on the table, then re-run." >&2
+    echo "       Live view:  python scripts/check_pose_sync.py --watch" >&2
+    echo "       To override: SKIP_POSE_GATE=true (not recommended)." >&2
+    exit 2
+  fi
+  echo
+fi
+
 exec "$PY" "$REPO_ROOT/scripts/record_so101.py" \
   --guard-retries="${GUARD_RETRIES:-4}" \
   --guard-motor-delay="${GUARD_MOTOR_DELAY:-0.25}" \
