@@ -76,6 +76,26 @@ def main() -> int:
               "Recording will still work; episodes will just be unlabeled.",
               file=sys.stderr)
 
+    # --profile SECONDS: measure the real record_loop, then report a breakdown.
+    profile_for = None
+    for a in list(argv):
+        if a.startswith("--profile"):
+            profile_for = 1.0
+            argv = [x for x in argv if not x.startswith("--profile")]
+            if "=" in a:
+                try:
+                    profile_for = float(a.split("=", 1)[1])
+                except ValueError:
+                    pass
+    profiler = None
+    if profile_for:
+        import record_loop_profile
+        if record_loop_profile.install():
+            profiler = record_loop_profile
+            print(f"[profile] measuring the record loop for ~{profile_for:g}s, "
+                  f"then printing a breakdown. Press n or q to stop earlier.",
+                  flush=True)
+
     print(f"[guard] torque guard active: retries={retries}, "
           f"per-motor delay={per_motor_delay}s, retry delay={retry_delay}s",
           flush=True)
@@ -116,7 +136,39 @@ def main() -> int:
     from lerobot.scripts.lerobot_record import main as record_main
 
     sys.argv = [sys.argv[0], *argv]
-    return record_main()
+    if profiler is None:
+        return record_main()
+
+    # Profile mode: run the real loop, then print the breakdown. The arm WILL
+    # move, so the pose gate in record_so101.sh has already run by this point.
+    import threading
+    import time as _time
+
+    t0 = _time.perf_counter()
+    stop_at = t0 + profile_for
+
+    def stopper():
+        # episode_outcome_keys already wraps init_keyboard_listener and holds
+        # the live events dict, so reuse it rather than re-instrumenting.
+        _time.sleep(max(stop_at - _time.perf_counter(), 0))
+        ev = getattr(episode_outcome_keys, "_EVENTS", None)
+        if ev:
+            ev["stop_recording"] = True
+            ev["exit_early"] = True
+
+    threading.Thread(target=stopper, daemon=True).start()
+    rc = 0
+    try:
+        rc = record_main()
+    except SystemExit as e:
+        rc = int(e.code or 0)
+    except KeyboardInterrupt:
+        rc = 0
+    finally:
+        wall = _time.perf_counter() - t0
+        loops = max(int(record_loop_profile.STATS.get("dataset.add_frame", [1])[0]), 1)
+        profiler.report(loops, wall)
+    return rc
 
 
 if __name__ == "__main__":

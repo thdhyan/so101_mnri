@@ -58,9 +58,12 @@ RECORD_TASK="${RECORD_TASK:-push the duck into the square tape}"
 NUM_EPISODES="${NUM_EPISODES:-100}"
 EPISODE_TIME_S="${EPISODE_TIME_S:-30}"
 DRY_RUN=""
+PROFILE=""
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN="--dry-run"; shift ;;
+    --profile) PROFILE="--profile=30"; shift ;;
+    --profile=*) PROFILE="$arg"; shift ;;
     --watch)
       echo "ERROR: --watch is a check_pose_sync.py flag, not a record flag." >&2
       echo "       To watch the leader/follower alignment live, run:" >&2
@@ -220,6 +223,7 @@ exec "$PY" "$REPO_ROOT/scripts/record_so101.py" \
   --guard-motor-delay="${GUARD_MOTOR_DELAY:-0.25}" \
   --guard-retry-delay="${GUARD_RETRY_DELAY:-0.4}" \
   ${DRY_RUN} \
+  ${PROFILE} \
   --robot.type=so101_follower \
   --robot.port="$FOLLOWER_PORT" \
   --robot.id="$FOLLOWER_ID" \
@@ -235,6 +239,7 @@ exec "$PY" "$REPO_ROOT/scripts/record_so101.py" \
   --dataset.fps="$FPS" \
   --dataset.streaming_encoding="$STREAMING_ENCODING" \
   --dataset.encoder_threads="$ENCODER_THREADS" \
+  --dataset.push_to_hub=false \
   --dataset.num_episodes="$NUM_EPISODES" \
   --dataset.episode_time_s="$EPISODE_TIME_S" \
   --resume="$RESUME" \
