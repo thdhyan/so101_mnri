@@ -77,6 +77,27 @@ done
 
 GRPC_PORT="${GRPC_PORT:-9876}"
 
+# --- live view -------------------------------------------------------------
+# Default: Rerun's own native viewer. `rerun-record --display_data` with no
+# display_ip/display_port calls rr.spawn(), which opens the desktop viewer
+# window. No proxy, no second process, no ?url= parameter.
+#
+# RERUN_WEB=1 opts back into the browser view, which needs the gRPC sink
+# running:  python scripts/so101_debug_server.py
+DISPLAY_DATA="${DISPLAY_DATA:-true}"
+DISPLAY_TARGET=""
+# Treat 1/true/yes as on, so both RERUN_WEB=1 and RERUN_WEB=true work.
+case "$(printf '%s' "${RERUN_WEB:-0}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on) USE_WEB=true ;;
+  *)             USE_WEB=false ;;
+esac
+if [[ "$USE_WEB" == "true" ]]; then
+  DISPLAY_TARGET="--display_ip=127.0.0.1 --display_port=$GRPC_PORT"
+elif [[ "$DISPLAY_DATA" == "true" ]]; then
+  # LeRobot passes this straight to rr.spawn(memory_limit=...).
+  export RERUN_MEMORY_LIMIT="${RERUN_MEMORY_LIMIT:-10%}"
+fi
+
 # --dataset.root is the dataset directory ITSELF, not a parent to put the
 # repo_id folder under, and LeRobotDatasetMetadata.create() requires that
 # directory NOT to exist yet. So build the full path here rather than passing
@@ -160,7 +181,10 @@ cat <<EOF
  task      "$RECORD_TASK"
  episodes  $NUM_EPISODES x ${EPISODE_TIME_S}s
  mode      $([[ $RESUME == true ]] && echo "RESUME (dataset already exists)" || echo "NEW dataset")
- debug UI  http://localhost:${DEBUG_PORT:-9090}/?url=rerun%2Bhttp%3A%2F%2Flocalhost%3A${GRPC_PORT}%2Fproxy
+ live view $(if [[ "$DISPLAY_DATA" != "true" ]]; then echo "OFF (DISPLAY_DATA=$DISPLAY_DATA)";
+             elif [[ "$USE_WEB" == "true" ]]; then echo "browser  http://localhost:${DEBUG_PORT:-9090}/?url=rerun%2Bhttp%3A%2F%2Flocalhost%3A${GRPC_PORT}%2Fproxy";
+             else echo "native Rerun window (spawned automatically)"; fi)
+ labels    s=success  f=failure  d=discard+re-record  n=end episode  q=quit
 ============================================================
 
 EOF
@@ -214,8 +238,7 @@ exec "$PY" "$REPO_ROOT/scripts/record_so101.py" \
   --dataset.num_episodes="$NUM_EPISODES" \
   --dataset.episode_time_s="$EPISODE_TIME_S" \
   --resume="$RESUME" \
-  --display_data=true \
+  --display_data="$DISPLAY_DATA" \
   --display_mode=rerun \
-  --display_ip=127.0.0.1 \
-  --display_port="$GRPC_PORT" \
+  ${DISPLAY_TARGET} \
   --play_sounds=false

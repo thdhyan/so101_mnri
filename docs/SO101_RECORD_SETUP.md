@@ -12,28 +12,39 @@ source .venv/bin/activate
 ```
 
 ```bash
-# terminal 1 — debug server (the Web UI). Leave running.
-python scripts/so101_debug_server.py
-```
-
-It prints the exact URL to open. **Use the one it prints** — the `?url=` part is
-not optional:
-
-```
-http://localhost:9090/?url=rerun%2Bhttp%3A%2F%2Flocalhost%3A9876%2Fproxy
-```
-
-```bash
-# terminal 2 — record
 bash scripts/record_so101.sh
 ```
 
-From another machine, forward **both** ports — the browser needs the HTML on
-9090 *and* the gRPC sink on 9876:
+That is the whole thing. The live view is Rerun's own native viewer, spawned
+automatically because `--display_data` is passed with no `display_ip`/
+`display_port`, which makes LeRobot call `rr.spawn()`. No proxy, no second
+process, no URL to copy.
+
+```
+ leader   /dev/ttyACM0  (serial 5AAF263743, id=mnri_arms_1_leader)
+ ...
+ live view native Rerun window (spawned automatically)
+ labels    s=success  f=failure  d=discard+re-record  n=end episode  q=quit
+```
+
+### Other live-view modes
+
+| | |
+|---|---|
+| `DISPLAY_DATA=false` | no visualisation at all — cheapest, and the data is unaffected |
+| `RERUN_WEB=1` | browser view; also run `python scripts/so101_debug_server.py` first |
+
+`so101_debug_server.py` is only needed for the browser mode, which is for
+headless / SSH sessions where no desktop window can open. Over SSH it also needs
+**both** ports forwarded, because the browser needs the HTML on 9090 *and* the
+gRPC sink on 9876:
 
 ```bash
 ssh -L 9090:localhost:9090 -L 9876:localhost:9876 thakk100@dhyan-LOQ
 ```
+
+Then open the exact URL the server prints — the `?url=` part is not optional
+(see below).
 
 Ports are env-overridable via `scripts/so101_env.sh` — edit that file, not the
 scripts. USB enumeration order is not stable across reboots.
@@ -66,7 +77,67 @@ start rather than writing into whatever is there.
 Verified directly: create → ok, second `create` → `FileExistsError`, `resume` →
 ok with 0 episodes.
 
-## What the debug server is
+## Success / failure / retry
+
+LeRobot's dataset schema (v3.0) has no outcome field, and its keyboard
+controls only cover flow control — `n`/right = end episode, `r`/left = discard
+and re-record, `q`/esc = quit. There is no way to say whether a take was
+actually any good.
+
+Recording now adds:
+
+| key | meaning |
+|---|---|
+| `s` | label the episode just saved **success** |
+| `f` | label it **failure** |
+| `d` | **discard** this take and re-record it |
+| `n` / right | end the episode early, keep it (LeRobot's own) |
+| `r` / left | discard and re-record (LeRobot's own) |
+| `q` / esc | stop (LeRobot's own) |
+
+Press `s` or `f` any time; the label is attached to the episode after it is
+committed, so the index is always right. The banner at startup repeats the keys.
+
+These hook into LeRobot's real key pipeline — `create_key_listener` is the single
+seam both backends (pynput and the terminal reader) funnel through — rather than
+prompting with `input()`, which would fight the key listener for the TTY.
+
+### Where the labels live
+
+`meta/outcomes.json` beside the dataset, **not** in the schema:
+
+```json
+{"version": 1,
+ "episodes": {"0": {"outcome": "success", "n_frames": 300,
+                    "recorded_at": "2026-09-25T22:04:11+0000"}}}
+```
+
+The dataset stays loadable by stock LeRobot, the labels survive a LeRobot
+upgrade, and **nothing is deleted**. A failed or discarded episode is still on
+disk; filter at train time instead.
+
+```bash
+python scripts/episode_outcomes.py --root data/thakk100_so101_single_arm_6dof
+python scripts/episode_outcomes.py --root ... --export successes.csv --only success
+```
+
+```
+episodes in dataset: 3
+labeled:            2
+  success        1  #
+  failure        1  #
+  discarded      0
+  unlabeled      1  (no s/f pressed for these)
+  1/3 usable for success-only training (33%)
+```
+
+`episode_outcomes.py` writes atomically (temp file + rename) so a crash mid-write
+cannot leave a corrupt label file, and rejects outcomes outside
+`success|failure|discarded`.
+
+Offline check, no hardware: `python scripts/test_episode_outcomes.py`.
+
+## The optional web debug server
 
 `scripts/so101_debug_server.py` runs two things:
 
@@ -546,6 +617,9 @@ but a LeRobot upgrade may pin it back.
 | `scripts/port_id_report.py` | which arm is on which port |
 | `scripts/tune_collection_cameras.py` | V4L2 exposure/format tuning + verify |
 | `scripts/check_pose_sync.py` | leader-vs-follower alignment gate (read-only) |
+| `scripts/episode_outcomes.py` | read/report/export per-episode success labels |
+| `scripts/episode_outcome_keys.py` | s/f/d key hooks (installed by the recorder) |
+| `scripts/test_episode_outcomes.py` | offline test for the above, no hardware |
 | `scripts/dump_preprocessing_spec.py` | read the real spec out of a recorded dataset |
 
 ## Still to do before useful data

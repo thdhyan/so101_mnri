@@ -95,7 +95,7 @@ def run(env, leaders, mirror, steps: int, hz: float = 60.0):
                     hi = env.action_space.high[arm_idx * 6:(arm_idx + 1) * 6]
                     env.data.ctrl[arm_idx * 6:(arm_idx + 1) * 6] = np.clip(targets, lo, hi)
                 if mirror is not None and n_arms == 1:
-                    mirror.send(rad_to_follower_action(targets))
+                    mirror.send_action(rad_to_follower_action(targets))
             # step physics with the written ctrl (pass the current ctrl to keep
             # the env's own clipping consistent)
             env.step(env.data.ctrl.copy())
@@ -106,7 +106,7 @@ def run(env, leaders, mirror, steps: int, hz: float = 60.0):
                 time.sleep(wait)
     finally:
         if mirror is not None:
-            mirror.robot.disconnect()
+            mirror.disconnect()
         for leader in leaders:
             leader.disconnect()
 

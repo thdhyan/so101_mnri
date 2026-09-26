@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import so101_torque_guard  # noqa: E402
+import episode_outcome_keys  # noqa: E402
 
 
 def main() -> int:
@@ -66,6 +67,14 @@ def main() -> int:
               "an unguarded connect() can slam the follower into its limits.",
               file=sys.stderr)
         return 1
+
+    # s/f/d keys: label each episode success/failure, or discard and re-record.
+    want_outcomes = "--no-outcomes" not in argv
+    argv = [a for a in argv if a != "--no-outcomes"]
+    if want_outcomes and not episode_outcome_keys.install():
+        print("WARNING: episode success/failure labels are unavailable this run. "
+              "Recording will still work; episodes will just be unlabeled.",
+              file=sys.stderr)
 
     print(f"[guard] torque guard active: retries={retries}, "
           f"per-motor delay={per_motor_delay}s, retry delay={retry_delay}s",
