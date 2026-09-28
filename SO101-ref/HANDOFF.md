@@ -1,14 +1,14 @@
 # SO101-mount — Agent Handoff (state, API recipes, pitfalls, next task)
 
-**Saved:** 2026-09-24 · **Session:** ses_f35dce26dffegiKQiJUGOJxNzR
-**Next task:** extend the mount plate sideways (wings) for modular single↔double-arm use,
-variable arm spacing, a printed center truss, and side compatibility with the SO-ARM100
-overhead-cam-mount attachment system — including **grooves/slots**.
+**Home:** `so101_mnri` repo → `SO101-ref/` (on `main`; run scripts from this folder).
+`~/Downloads/SO101-ref/` is the old scratch copy — don't edit it.
+**Updated:** 2026-09-28 · first written 2026-09-24 (ses_f35dce26dffegiKQiJUGOJxNzR)
 
-> ⚠️ `/tmp/opencode` is **wiped on server restart**. All persistent state now lives in
-> **`~/Downloads/SO101-ref/`** (this file, features JSON, reference STLs, renders, deliverables).
+**Current deliverable:** `SO101-mount_L_interlock.stl` (L-mount, §9). **Read §9 and §10 first**;
+§3–§8 describe the superseded flat plate in Onshape (kept for API recipes / history).
 
----
+**Next task (blocked on the user):** screw length vs. nut — §10. The user must pick a fix and
+report the measured thickness of their #8-32 nuts before geometry changes.
 
 ## 1. Connect to Onshape
 
@@ -155,7 +155,7 @@ tip = seat − 19.05; nut zone −0.95…−3.19. Alternative: 7/8" screw, seat 
 
 ## 5. Overhead-cam-mount attachment analysis (source: SO-ARM100 repo)
 
-Files: `~/Downloads/SO101-ref/{arm_base.stl, cam_mount_bottom.stl, Overhead_Cam_Mount_README.md}`
+Files: `SO101-ref/{arm_base.stl, cam_mount_bottom.stl, Overhead_Cam_Mount_README.md}`
 (raw: `github.com/TheRobotStudio/SO-ARM100/Optional/Overhead_Cam_Mount_32x32_UVC_Module`).
 
 **`arm_base.stl`** — **identical mesh to the "arm" body already in the doc**
@@ -218,7 +218,7 @@ engraved lattice *is* arm_base's pocket pattern, and feature #10 derives this fi
     fixed by the front face.
 15. **P15 Local tooling** — matplotlib broken (use PIL + trimesh); `cq.TopoDS` absent (use
     `OCP.TopoDS`); node names may be localized (find nodes by type, not name).
-16. **P16 /tmp wiped on restart** — persist everything under `~/Downloads/SO101-ref/`.
+16. **P16 /tmp wiped on restart** — persist everything in the repo's `SO101-ref/`.
 
 ---
 
@@ -265,7 +265,7 @@ is re-running the verification suite, all of which is documented above.
 
 ---
 
-## 8. Deliverables (current, verified) — `~/Downloads/` and mirrored in `SO101-ref/`
+## 8. Deliverables of the old flat plate (superseded by §9)
 
 | File | Status |
 |---|---|
@@ -297,10 +297,58 @@ ribs (8–12 ribs, 2.9 wide, 2.4 tall below base flat y_b=2.4).
 - Back panel matches Onshape Part Studio 1 plate: x ±90 (180 wide), 10 thick (z −65…−55),
   y 0 → −183.8; 7.2-thick bridge (x ±90) joins arm_base rear edge (z −44.43) to the panel.
 - Ø5 holes, teardrop apex +z; hex nut pockets AF 8.24, vertex +z, from bottom to y=−3.5.
-- Stack-up (spotfaced base, #8-32×3/4" button head): seat y=12.80, tip −6.25, nut −5.74…−3.50
+- Stack-up **with the spotfaced base only** (#8-32×3/4" button head; stock base → see §10): seat y=12.80, tip −6.25, nut −5.74…−3.50
   → tip 0.51 past nut; web nut↔rib pocket floor 0.90.
 - Verified: watertight after STL reload, 1 body, vol 407 351 mm³; base↔plate min gap 0.0
   (no interference); flat contact 3 121 mm²; rib→wall ≥0.20; rib→floor 0.20; 4 holes open.
 - Print: panel outer face (z=−65) on bed, +z up. Footprint 180 × 184, height 110.
 - Open risk: full-width panel may touch cam_mount_bottom if that column extends past the
   arm_base rear edge (not modeled).
+
+---
+
+## 10. 2026-09-28 — Screw check against the OFFICIAL base (open issue)
+
+Source: `Base_SO101_official.stl` = TheRobotStudio SO-ARM100 `STL/SO101/Individual/Base_SO101.stl`
+(downloaded 2026-09-28). Same frame/bounds as our reference base, vol 122 690 mm³, and it is
+**watertight** — use it for exact 3D booleans (our `Base_SO101_spotface.stl` is not).
+
+**Interlock with the official base: OK.** 3D boolean base∩mount = 0.0 mm³; the base flat bears on
+3 120 mm² of the plate top; rib→pocket wall ≥ 0.14 mm (diagonal pixel; 0.2 as designed).
+
+**Base hole:** Ø5.0 through (teardrop toward +z), 45° countersink from r2.5 @ y_b=15.2 to the pad
+top @ 17.5. Head column above is clear.
+
+**Screw:** #8-32 × 3/4" button head socket cap, ASME B18.3: head **Ø0.312" (7.92) × 0.087" (2.21)**,
+major Ø0.164" (4.17), length 19.05 under the head. The dome is on top; the **underside is a flat
+bearing face**, so the dome does not help it sink into the countersink. The Ø7.92 head rests on
+the 45° cone at r=3.96 → **y_b=16.68**. (The first pass wrongly used socket-cap head Ø6.86 → 16.14.)
+Spotfaced base: flat seat at 15.2 out to r≥4.5 → the Ø7.92 head sits flat at 15.2.
+
+**Stack-up** (plate frame; plate top y=0, bottom −7.2; nut pocket ceiling −3.5, nut 2.24 thick):
+
+| base | head seat | tip (−19.05) | nut −5.74…−3.50 |
+|---|---|---|---|
+| official (stock) | 14.28 | **−4.77** | **short 0.97**: 1.27/2.24 mm threaded (~1.6 threads) |
+| spotfaced | 12.80 | −6.25 | through, +0.51 |
+
+Render: `render_screw_section.png` (built by `render_screw_section.py`). Sections along the front
+face (normal z) at both bolt rows (z=−37.3 and 32.475), whole width, plus zooms: base grey,
+mount blue, screw red, nut orange; per-bolt seat/tip/engagement labels.
+
+**Unverified:** the nut thickness 2.24 comes from the old notes. A standard #8-32 hex nut is
+3.18 (1/8") thick → with that nut the stock-base case is ~1.9 short.
+
+**Fix options offered to the user (none chosen yet):**
+1. Print `Base_SO101_spotface.stl` (recommended; 3/4" passes the nut, head seats flat). No mount change.
+2. Official base + 7/8" screws: tip −7.95 sticks out 0.75 below the plate bottom. Needs the plate
+   thickened locally (~1.5 mm) around the bolts, **not** at the cam-mount tabs (they must stay 7.2).
+3. Raising the nut is no longer viable: it would need 0.97 mm, which cuts into the rib pockets.
+
+Change `NUT_CEIL`, `NUT_T`, `SCREW_L`, `SEAT_Y_BASE`, `T_PLATE` in `build_mount_L.py`, then rerun
+`python3 build_mount_L.py && python3 render_L.py && python3 render_screw_section.py` and check
+the printed stack-up line plus the section render. `render_screw_section.py` measures the seat
+itself from the base mesh, so a changed base file shows up there directly.
+
+**Tooling:** python3 with trimesh, manifold3d, shapely, cv2, scipy, PIL (matplotlib broken, P15).
+The Onshape document is **not** updated with the L-mount; it exists only as these local meshes.
