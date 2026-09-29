@@ -28,13 +28,13 @@ for mesh, col in ((base, GREY), (part, BLUE)):
         pts = sec.vertices[ent.points]
         dr.line([tf(p[2], p[1]) for p in pts], fill=tuple(int(c * 0.6) for c in col), width=3)
 zb, _ = B.HOLES[0][1], None
-tip = B.SEAT_Y_BASE - B.BASE_FLAT - B.SCREW_L
-seat = B.SEAT_Y_BASE - B.BASE_FLAT
-dr.rectangle([tf(zb - 2.08, seat), tf(zb + 2.08, tip)], outline=(200, 40, 40), width=3)       # shank
-dr.rectangle([tf(zb - 3.43, seat + 2.87), tf(zb + 3.43, seat)], outline=(200, 40, 40), width=3)  # button head
-dr.rectangle([tf(zb - 3.97, B.NUT_CEIL), tf(zb + 3.97, B.NUT_CEIL - B.NUT_T)], fill=(230, 170, 60))
+seat = 10.3 + B.BUTTON_D / 2          # button underside on the official base countersink cone
+tip = seat - B.SCREW_L
+dr.rectangle([tf(zb - 2.5, seat), tf(zb + 2.5, tip)], outline=(200, 40, 40), width=3)          # shank
+dr.rectangle([tf(zb - B.BUTTON_D / 2, seat + 2.75), tf(zb + B.BUTTON_D / 2, seat)], outline=(200, 40, 40), width=3)  # button head
+dr.rectangle([tf(zb - 4.0, B.NUT_CEIL), tf(zb + 4.0, B.NUT_CEIL - B.NUT_T)], fill=(230, 170, 60))
 dr.line([tf(zc - 55, 0), tf(zc + 55, 0)], fill=(0, 150, 0), width=1)
-dr.text((20, 20), f'section x={x0}: #8-32x3/4 button head, seat y={seat:.2f}, tip y={tip:.2f}, '
+dr.text((20, 20), f'section x={x0}: M5x25 button head (rear row), seat y={seat:.2f}, tip y={tip:.2f}, '
         f'nut {B.NUT_CEIL - B.NUT_T:.2f}..{B.NUT_CEIL:.2f} (orange), plate top y=0 (green)', fill=(0, 0, 0))
 img.save('render_L_section.png')
 print('saved render_L_{top,iso,bottom,section}.png')

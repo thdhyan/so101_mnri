@@ -4,13 +4,17 @@
 z -65..-55, down to y=-183.8), bridged to the arm_base rear edge.
 
 Plate frame (same as the old Onshape mount / SO101-arm_reference.stl):
-  x lateral, y up (plate top y=0, bottom y=-7.2), z fore-aft, rear = -z.
+  x lateral, y up (plate top y=0, arm_base bottom y=-7.2, bolt pad bottom y=-12),
+  z fore-aft, rear = -z.
   Base sits at z_base = z_plate + 29.8, base underside flat (y_b=2.4) on plate top.
+Screws: M5 x 25. Rear row (near the back panel) = button head ISO 7380, front row =
+countersunk socket ISO 10642 (90 deg, sits in the base's 90 deg countersink, low profile
+where the arm swings). Captive M5 hex nuts (ISO 4032, 8 AF x 4.7) from below.
 Print orientation: back panel outer face on the bed, +z up (holes teardrop apex +z,
 hex nut pockets vertex +z).
 """
 import os, numpy as np, trimesh, cv2, manifold3d as mf
-from shapely.geometry import Polygon, MultiPolygon
+from shapely.geometry import Polygon, MultiPolygon, box as sbox
 from shapely.ops import unary_union
 
 R = os.path.dirname(os.path.abspath(__file__)) + '/'
@@ -24,17 +28,21 @@ BASE_DZ = -29.8                   # z_plate = z_base - 29.8
 BASE_FLAT = 2.4                   # base underside flat (base frame); ribs/bosses below it
 CLEAR_XZ = 0.2                    # interlock side clearance
 POCKET_DEPTH = BASE_FLAT + 0.2    # rib pocket depth below plate top
-T_PLATE = 7.2                     # arm_base thickness
+T_PLATE = 7.2                     # arm_base thickness (cam-mount tabs keep this)
+T_PAD = 12.0                      # plate thickness under the bolts (pad below arm_base)
+PAD_X = 46.0                      # pad spans |x| <= PAD_X (tabs at |x| > ~56 stay 7.2)
 PANEL_Z = (-65.0, -55.0)          # back panel z range (Onshape plate: 10 thick)
 PANEL_X = 90.0                    # back panel half width (Onshape plate: 180 wide)
 PANEL_BOTTOM = -183.8             # back panel reaches y=-183.8 (Onshape plate)
-HOLE_D = 5.0
+HOLE_D = 5.5                      # M5 normal clearance
 HOLES = [(31.75, -37.3), (-31.75, -37.3), (27.776, 32.475), (-27.776, 32.475)]
-NUT_AF = 7.94 + 0.30              # #8-32 hex nut 5/16" AF + clearance
-NUT_CEIL = -3.5                   # nut pocket ceiling (y); pocket open to the bottom
-SEAT_Y_BASE = 15.20               # spotfaced head seat (base frame)
-SCREW_L = 19.05                   # #8-32 x 3/4" button head
-NUT_T = 2.24
+NUT_AF = 8.0 + 0.30               # M5 hex nut 8 AF + clearance
+NUT_T = 4.7                       # ISO 4032 M5 nut
+NUT_CEIL = -3.8                   # nut pocket ceiling (y); pocket open to the bottom
+SCREW_L = 25.0                    # M5 x 25 (button: under head; countersunk: overall)
+# official base countersink (plate frame): 90 deg cone y = 10.3 + r, r 2.5..4.8, pad top 15.1
+BUTTON_D = 9.5                    # ISO 7380 M5 head, flat underside
+CSK_D = 10.0                      # ISO 10642 / DIN 7991 M5 head (actual 9.43..10)
 
 
 # plate (x,y,z) <-> work frame W (X=x, Y=-z, Z=y): extrusions run along plate y
@@ -119,14 +127,23 @@ def build():
     bridge = box(-PANEL_X, PANEL_X, -T_PLATE, 0, PANEL_Z[1] - 0.5, az0 + 0.5)  # plate -> panel
     part = A + notch_fill + panel + bridge
 
+    # thicker pad under the bolt area: arm_base footprint + notch + bridge, |x| <= PAD_X
+    sec = arm.section(plane_origin=(0, -T_PLATE / 2, 0), plane_normal=(0, 1, 0))
+    foot = Polygon()
+    for d in sec.discrete:
+        if len(d) > 3: foot = foot.symmetric_difference(Polygon(np.asarray(d)[:, [0, 2]]).buffer(0))
+    foot = unary_union([foot, sbox(-12.5, az0, 12.5, -3.0), sbox(-PANEL_X, PANEL_Z[1] - 0.5, PANEL_X, az0 + 0.5)])
+    foot = foot.intersection(sbox(-PAD_X, -100, PAD_X, 100))
+    part = part + slab(xz_polys_to_cs(foot), -T_PAD, -T_PLATE + 0.5)
+
     mask_geom, hm = base_underside_mask()
     cutter = mask_geom.buffer(CLEAR_XZ, join_style=1).simplify(0.01)
     part = part - slab(xz_polys_to_cs(cutter), -POCKET_DEPTH, 1.0)
 
     holes = unary_union([hole_2d(x, z) for x, z in HOLES])
     nuts = unary_union([hex_2d(x, z) for x, z in HOLES])
-    part = part - slab(xz_polys_to_cs(holes), -T_PLATE - 1, 1.0)
-    part = part - slab(xz_polys_to_cs(nuts), -T_PLATE - 1, NUT_CEIL)
+    part = part - slab(xz_polys_to_cs(holes), -T_PAD - 1, 1.0)
+    part = part - slab(xz_polys_to_cs(nuts), -T_PAD - 1, NUT_CEIL)
 
     g = part.simplify(0.001).to_mesh()   # drop coplanar-union slivers
     out = trimesh.Trimesh(from_w(g.vert_properties[:, :3].astype(float)), g.tri_verts, process=False)
@@ -136,10 +153,12 @@ def build():
 if __name__ == '__main__':
     m, mask_geom, cutter, hm = build()
     m.export(OUT)
-    tip = SEAT_Y_BASE - BASE_FLAT - SCREW_L
     print('saved', OUT)
     print('bounds', m.bounds.round(2).tolist(), 'vol', round(m.volume, 1),
           'watertight', m.is_watertight, 'bodies', len(m.split()))
-    print(f'screw tip y={tip:.2f}  nut zone {NUT_CEIL - NUT_T:.2f}..{NUT_CEIL:.2f}  '
-          f'tip past nut {NUT_CEIL - NUT_T - tip:.2f}  web over nut to pocket floor '
-          f'{-POCKET_DEPTH - NUT_CEIL:.2f}')
+    # both heads are wider than the cone base and <= ~pad edge: seat = cone height at head radius
+    for name, top in (('rear button', 10.3 + BUTTON_D / 2), ('front countersunk', 10.3 + CSK_D / 2)):
+        tip = top - SCREW_L
+        print(f'{name}: seat/head-top y={top:.2f} tip y={tip:.2f}  nut {NUT_CEIL - NUT_T:.2f}..{NUT_CEIL:.2f}  '
+              f'tip past nut {NUT_CEIL - NUT_T - tip:.2f}  tip above pad bottom {tip + T_PAD:.2f}')
+    print(f'web over nut to rib-pocket floor {-POCKET_DEPTH - NUT_CEIL:.2f}')

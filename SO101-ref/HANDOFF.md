@@ -2,13 +2,14 @@
 
 **Home:** `so101_mnri` repo → `SO101-ref/` (on `main`; run scripts from this folder).
 `~/Downloads/SO101-ref/` is the old scratch copy — don't edit it.
-**Updated:** 2026-09-28 · first written 2026-09-24 (ses_f35dce26dffegiKQiJUGOJxNzR)
+**Updated:** 2026-09-29 · first written 2026-09-24 (ses_f35dce26dffegiKQiJUGOJxNzR)
 
-**Current deliverable:** `SO101-mount_L_interlock.stl` (L-mount, §9). **Read §9 and §10 first**;
-§3–§8 describe the superseded flat plate in Onshape (kept for API recipes / history).
+**Current deliverable:** `SO101-mount_L_interlock.stl` (L-mount, §9, M5 update §11). **Read §9,
+§11 and §12 first**; §10 is the superseded #8-32 check; §3–§8 describe the superseded flat plate
+in Onshape (kept for API recipes / history).
 
-**Next task (blocked on the user):** screw length vs. nut — §10. The user must pick a fix and
-report the measured thickness of their #8-32 nuts before geometry changes.
+**Next task:** none open. User to print and test fit. Unconfirmed: M5 nut thickness (4.7 assumed),
+and whether the M5 shank passes the base's Ø5.0 printed hole (see §11 risks).
 
 ## 1. Connect to Onshape
 
@@ -307,7 +308,7 @@ ribs (8–12 ribs, 2.9 wide, 2.4 tall below base flat y_b=2.4).
 
 ---
 
-## 10. 2026-09-28 — Screw check against the OFFICIAL base (open issue)
+## 10. 2026-09-28 — Screw check against the OFFICIAL base (SUPERSEDED by §11: user switched to M5)
 
 Source: `Base_SO101_official.stl` = TheRobotStudio SO-ARM100 `STL/SO101/Individual/Base_SO101.stl`
 (downloaded 2026-09-28). Same frame/bounds as our reference base, vol 122 690 mm³, and it is
@@ -345,10 +346,74 @@ mount blue, screw red, nut orange; per-bolt seat/tip/engagement labels.
    thickened locally (~1.5 mm) around the bolts, **not** at the cam-mount tabs (they must stay 7.2).
 3. Raising the nut is no longer viable: it would need 0.97 mm, which cuts into the rib pockets.
 
-Change `NUT_CEIL`, `NUT_T`, `SCREW_L`, `SEAT_Y_BASE`, `T_PLATE` in `build_mount_L.py`, then rerun
+Change `NUT_CEIL`, `NUT_T`, `SCREW_L`, `T_PAD`, `BUTTON_D`, `CSK_D` in `build_mount_L.py`, then rerun
 `python3 build_mount_L.py && python3 render_L.py && python3 render_screw_section.py` and check
 the printed stack-up line plus the section render. `render_screw_section.py` measures the seat
 itself from the base mesh, so a changed base file shows up there directly.
 
 **Tooling:** python3 with trimesh, manifold3d, shapely, cv2, scipy, PIL (matplotlib broken, P15).
 The Onshape document is **not** updated with the L-mount; it exists only as these local meshes.
+
+---
+
+## 11. 2026-09-29 — M5 × 25 screws, thicker bolt pad (current)
+
+**User input:** screws on hand are **M5 × 25 button head** and **M5 × 25 countersunk**. Button heads
+go in the **rear row** (z=−37.3, near the back panel), countersunk in the **front row** (z=32.475),
+so the low-profile heads sit where the arm swings. The extra length is used for a thicker plate so
+the captive nuts sit deep and stable. (The #8-32 flat socket head from Grainger 811YX3 was dropped:
+a 3/4" flat head ended 0.9–1.6 short of passing the nut on any base.)
+
+**Base:** use the **official** `Base_SO101` (its 90° countersink, cone y = 10.3 + r in plate frame,
+r 2.5…4.8, pad top 15.1). Do **not** use `Base_SO101_spotface` any more: the flat seat would leave
+the countersunk heads unsupported. (The build still reads the spotface STL only for the underside
+rib heightmap; the underside is identical.)
+
+**Mount changes** (`build_mount_L.py`):
+- `T_PAD = 12.0`: pad below arm_base down to y=−12, footprint = arm_base section + notch + bridge,
+  limited to |x| ≤ `PAD_X = 46`. The cam-mount side tabs (|x| ≳ 56) stay 7.2 thick.
+- `HOLE_D = 5.5` (M5 normal clearance, teardrop +z).
+- Nut pockets: M5 ISO 4032 nut 8 AF × 4.7 → `NUT_AF = 8.3`, `NUT_T = 4.7`, `NUT_CEIL = −3.8`
+  (web 1.2 to the rib-pocket floor at −2.6; was 0.9). Pocket open from y=−12 up to −3.8.
+
+**Stack-up** (plate frame; measured on the official base by `render_screw_section.py`):
+
+| row | screw | head | seat | tip | nut −8.50…−3.80 | tip to pad bottom −12 |
+|---|---|---|---|---|---|---|
+| rear | M5×25 button (ISO 7380, Ø9.5 × 2.75, L under head) | flat underside drops 0.05 into the cone | underside 15.07 | −9.93 | full 4.70, +1.43 past | 2.07 inside |
+| front | M5×25 countersunk (ISO 10642/DIN 7991, 90°, Ø10, L overall) | cone on cone | top 15.32 (0.22 proud of pad) | −9.68 | full 4.70, +1.18 past | 2.32 inside |
+
+Countersunk head Ø range 9.43–10 → head top 15.0–15.3, tip −10.0…−9.7: all pass the nut, none reach
+the pad bottom.
+
+**Verified:** watertight, 1 body, vol 444 929 mm³; 3D boolean vs official base = 0.0 mm³; 4 holes
+open; pad bottom −12 at the bolts; tabs at x=±66, 60 still bottom −7.2.
+Renders: `render_screw_section.png` (both rows + zooms), `render_L_*.png`.
+
+**Risks / unverified:**
+- The official base hole is Ø5.0 as modelled; M5 shank is 4.82–4.98. A printed Ø5.0 hole usually
+  comes out undersize → run a 5.2–5.5 mm drill through the base holes if the screws bind.
+- Countersunk Ø10 head stands 0.2 above the base pad (base countersink tops out at Ø9.6).
+  Deburr/ream the base countersink if it must be flush.
+- Nut thickness 4.7 (standard) assumed; a thin nut (ISO 4035, 2.7) still works (more tip past).
+
+## 12. How the design was made (method, for re-doing it)
+
+1. **Reference geometry:** SO-ARM100 `arm_base.stl` (overhead-cam mount, already interlocks with the
+   base footprint and bolt pattern) and the official `Base_SO101.stl`, both placed in the old
+   Onshape plate frame (x lateral, y up, plate top y=0, `z_plate = z_base − 29.8`).
+2. **Interlock:** ray-cast heightmap of the base underside → mask where it drops below its flat
+   (ribs, hole bosses) → cv2 contours → shapely polygons, +0.2 clearance → extruded 2.6 deep and
+   subtracted from the plate top. The base flat bears on the remaining plate top.
+3. **Solid modelling:** manifold3d booleans in a work frame W = (x, −z, y) so every 2D profile
+   extrudes along plate y. Union: arm_base + rear-notch fill + bridge + back panel (Onshape Part
+   Studio 1 size) + bolt pad; subtract: rib pockets, teardrop holes, hex nut pockets from below.
+   `simplify(0.001)` before export removes coplanar slivers.
+4. **Screw fit:** section the official base + mount through each bolt row (plane normal z); seat each
+   head by ray-casting the base within the head radius (button: highest surface; countersunk:
+   lowest head-top where the 90° cone clears the base); tip = seat − length; compare with nut zone
+   and pad bottom.
+5. **Checks each rebuild:** watertight/1 body, 3D boolean vs official base = 0, holes open, tabs
+   unchanged, then look at `render_screw_section.png` yourself.
+6. **Print:** back panel outer face (z=−65) on the bed, +z up; hole teardrops and nut hex vertices
+   point +z so they bridge without support.

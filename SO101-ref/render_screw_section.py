@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Front-face (plane normal z) sections through both bolt rows: official Base_SO101 +
-L-mount + #8-32 x 3/4" button head screws + hex nuts. Writes render_screw_section.png."""
+L-mount + M5 x 25 screws (rear row button head, front row countersunk) + M5 hex nuts.
+Writes render_screw_section.png."""
 import os, numpy as np, trimesh
 from PIL import Image, ImageDraw, ImageFont
 from shapely.geometry import Polygon, box as sbox
@@ -10,8 +11,11 @@ import build_mount_L as B
 R = os.path.dirname(os.path.abspath(__file__)) + '/'
 BASE_OFFICIAL = R + 'Base_SO101_official.stl'   # TheRobotStudio SO-ARM100 STL/SO101/Individual
 
-# button head socket cap #8-32 (ASME B18.3): head 0.312" x 0.087" (flat underside, domed top), major 0.164"
-HEAD_D, HEAD_H, MAJOR_D = 7.92, 2.21, 4.17
+# M5 button head ISO 7380: head 9.5 x 2.75, flat underside, length under head.
+# M5 countersunk socket ISO 10642 / DIN 7991: 90 deg head Ø10 x 2.8, length overall.
+MAJOR_D = 5.0
+BUTTON = dict(kind='button', d=B.BUTTON_D, h=2.75)
+CSK = dict(kind='csk', d=B.CSK_D, h=2.8)
 NUT_T = B.NUT_T
 
 part = trimesh.load(B.OUT)
@@ -19,14 +23,15 @@ base = trimesh.load(BASE_OFFICIAL)
 base.apply_translation([0, -B.BASE_FLAT, B.BASE_DZ])   # seated: base flat on plate top y=0
 
 
-def seat_y(x, z):
-    """Head underside height: highest base surface within the head radius (plate frame)."""
-    hs = []
-    for r in np.linspace(0, HEAD_D / 2, 8):
+def seat_y(x, z, scr):
+    """Button: head underside = highest base surface within the head radius.
+    Countersunk: head top, lowest position where the 90 deg head cone clears the base."""
+    R = scr['d'] / 2; hs = []
+    for r in np.linspace(0, R, 16):
         for a in np.linspace(0, 2 * np.pi, 24, endpoint=False):
             l, _, _ = base.ray.intersects_location(
                 [[x + r * np.cos(a), 200, z + r * np.sin(a)]], [[0, -1, 0]])
-            if len(l): hs.append(l[:, 1].max())
+            if len(l): hs.append(l[:, 1].max() + (R - r if scr['kind'] == 'csk' else 0))
     return max(hs)
 
 
@@ -46,7 +51,7 @@ def draw_geom(dr, g, tf, fill, outline):
             dr.polygon([tf(*c) for c in h.coords], fill=(255, 255, 255), outline=outline)
 
 
-def panel(z_row, holes, x_lo, x_hi, y_lo, y_hi, W, title, font, small):
+def panel(z_row, holes, scr, x_lo, x_hi, y_lo, y_hi, W, title, font, small):
     s = (W - 40) / (x_hi - x_lo)
     H = int((y_hi - y_lo) * s) + 90
     img = Image.new('RGB', (W, H), (255, 255, 255)); dr = ImageDraw.Draw(img)
@@ -56,9 +61,16 @@ def panel(z_row, holes, x_lo, x_hi, y_lo, y_hi, W, title, font, small):
     draw_geom(dr, section_polys(part, z_row).intersection(clip), tf, (120, 165, 220), (30, 70, 130))
     notes = []
     for x in holes:
-        sy = seat_y(x, z_row); tip = sy - B.SCREW_L
+        sy = seat_y(x, z_row, scr); tip = sy - B.SCREW_L    # sy: button underside / csk head top
         nut_top, nut_bot = B.NUT_CEIL, B.NUT_CEIL - NUT_T
-        head = sbox(x - HEAD_D / 2, sy, x + HEAD_D / 2, sy + HEAD_H)
+        R = scr['d'] / 2
+        if scr['kind'] == 'button':
+            head = sbox(x - R, sy, x + R, sy + scr['h'])
+        else:   # 90 deg cone down to the shank, small cylindrical edge on top
+            ch = R - MAJOR_D / 2
+            head = Polygon([(x - R, sy), (x + R, sy), (x + R, sy - (scr['h'] - ch)),
+                            (x + MAJOR_D / 2, sy - scr['h']), (x - MAJOR_D / 2, sy - scr['h']),
+                            (x - R, sy - (scr['h'] - ch))])
         shank = sbox(x - MAJOR_D / 2, tip, x + MAJOR_D / 2, sy)
         nut = sbox(x - B.NUT_AF / 2 + 0.15, nut_bot, x + B.NUT_AF / 2 - 0.15, nut_top) - \
             sbox(x - MAJOR_D / 2, nut_bot, x + MAJOR_D / 2, nut_top)
@@ -67,13 +79,13 @@ def panel(z_row, holes, x_lo, x_hi, y_lo, y_hi, W, title, font, small):
         engage = min(nut_top, sy) - max(nut_bot, tip)
         ok = tip <= nut_bot
         notes.append((x, sy, tip, engage, ok))
-    for yl, c, lab in ((0, (0, 140, 0), 'plate top y=0'), (-B.T_PLATE, (0, 90, 0), 'plate bottom')):
+    for yl, c, lab in ((0, (0, 140, 0), 'plate top y=0'), (-B.T_PAD, (0, 90, 0), 'pad bottom')):
         dr.line([tf(x_lo, yl), tf(x_hi, yl)], fill=c, width=1)
         dr.text(tf(x_lo, yl + 0.4), lab, fill=c, font=small)
     dr.text((20, 8), title, fill=(0, 0, 0), font=font)
     for i, (x, sy, tip, eng, ok) in enumerate(notes):
         dr.text((20 + i * (W // 2), 34),
-                f'x={x:+.2f}: head seat y={sy:.2f}  tip y={tip:.2f}  nut {B.NUT_CEIL - NUT_T:.2f}..{B.NUT_CEIL:.2f}  '
+                f'x={x:+.2f}: {"head seat" if scr["kind"] == "button" else "head top"} y={sy:.2f}  tip y={tip:.2f}  nut {B.NUT_CEIL - NUT_T:.2f}..{B.NUT_CEIL:.2f}  '
                 f'thread in nut {eng:.2f}/{NUT_T:.2f} mm  {"THROUGH" if ok else "SHORT by %.2f" % (tip - (B.NUT_CEIL - NUT_T))}',
                 fill=(0, 110, 0) if ok else (190, 0, 0), font=small)
     return img, notes
@@ -84,15 +96,16 @@ if __name__ == '__main__':
         font = ImageFont.truetype('DejaVuSans.ttf', 20); small = ImageFont.truetype('DejaVuSans.ttf', 15)
     except OSError:
         font = small = ImageFont.load_default()
-    rows = [(-37.3, (31.75, -31.75), 'rear bolt row'), (32.475, (27.776, -27.776), 'front bolt row')]
+    rows = [(-37.3, (31.75, -31.75), BUTTON, 'rear bolt row', 'M5x25 button head'),
+            (32.475, (27.776, -27.776), CSK, 'front bolt row', 'M5x25 countersunk')]
     imgs = []
-    for z, holes, name in rows:
-        im, notes = panel(z, holes, -92, 92, -12, 40, 1800,
+    for z, holes, scr, name, sname in rows:
+        im, notes = panel(z, holes, scr, -92, 92, -16, 40, 1800,
                           f'Section z={z} ({name}) - official Base_SO101 (grey), L-mount (blue), '
-                          f'#8-32x3/4" button head (red), hex nut (orange)', font, small)
+                          f'{sname} (red), M5 hex nut (orange)', font, small)
         imgs.append(im)
         for x in holes[:1]:   # zoom on one bolt
-            zim, _ = panel(z, (x,), x - 9, x + 9, -9, 21, 900,
+            zim, _ = panel(z, (x,), scr, x - 10, x + 10, -14, 21, 900,
                            f'zoom x={x}, z={z}', font, small)
             imgs.append(zim)
         for n in notes: print(name, 'x=%.2f seat=%.2f tip=%.2f engage=%.2f through=%s' % n)
