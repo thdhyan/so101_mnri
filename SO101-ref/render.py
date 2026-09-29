@@ -19,7 +19,7 @@ def render(items, cam_dir, up_hint=(0,0,1), W=1600, H=1100, bg=(252,252,252),
     r /= np.linalg.norm(r)
     u = np.cross(f, r)
     basis = np.stack([r,u,f])
-    allp = [m.vertices @ basis for m,_ in items]
+    allp = [m.vertices @ basis.T for m,_ in items]
     P = np.vstack(allp)
     x0,x1 = P[:,0].min(), P[:,0].max(); y0,y1 = P[:,1].min(), P[:,1].max()
     s = min((W-40)/(x1-x0), (H-40)/(y1-y0))
@@ -30,7 +30,7 @@ def render(items, cam_dir, up_hint=(0,0,1), W=1600, H=1100, bg=(252,252,252),
               ((0.35,0.75,0.55), (-0.5,0.6,0.3), (0.1,0.2,1.0))]
     lamk  = (0.55, 0.22, 0.16)
     for mesh, col in items:
-        V = mesh.vertices @ basis
+        V = mesh.vertices @ basis.T
         sx = V[:,0]*s + ox; sy = oy - V[:,1]*s; sz = V[:,2]
         F = mesh.faces
         tri = V[F]                                   # (n,3,3) camera space

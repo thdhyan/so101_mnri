@@ -388,7 +388,12 @@ the pad bottom.
 
 **Verified:** watertight, 1 body, vol 444 929 mm³; 3D boolean vs official base = 0.0 mm³; 4 holes
 open; pad bottom −12 at the bolts; tabs at x=±66, 60 still bottom −7.2.
-Renders: `render_screw_section.png` (both rows + zooms), `render_L_*.png`.
+Renders: `render_screw_section.png` (both rows + zooms), `render_L_*.png`, and from
+`render_assembly_M5.py`: assembly stills `render_asm_{iso,top,front,right}.png` (grid
+`render_asm_views.png`) and 5 s section-sweep videos `slice_front_pair.mp4` / `slice_rear_pair.mp4`
+(plane normal z swept ±7 mm through each bolt row, top-view inset shows the cut).
+**2026-09-29 fix:** `render.py` projected with `basis` instead of `basis.T`, so all older 3D stills
+were viewed from the wrong side (old "bottom" render was really the top). Fixed; `render_L_*` re-rendered.
 
 **Risks / unverified:**
 - The official base hole is Ø5.0 as modelled; M5 shank is 4.82–4.98. A printed Ø5.0 hole usually
