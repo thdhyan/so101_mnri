@@ -138,6 +138,11 @@ def main() -> int:
     fp = args.follower_port or port_for(args.follower_serial)
     args.leader_port, args.follower_port = lp, fp
 
+    # One flag for the whole check. It must NOT be re-initialised further
+    # down: an arm that is missing is a failure, and wiping the flag here used
+    # to make the check report "ALL CHECKS PASSED" with an arm unplugged.
+    ok = True
+
     if lp and fp:
         print(f"[ok]   leader   serial {args.leader_serial} -> {lp}")
         print(f"[ok]   follower serial {args.follower_serial} -> {fp}")
@@ -156,15 +161,24 @@ def main() -> int:
     print()
 
     # --- ports exist? ---
-    ok = True
-    for role, port in (("leader", args.leader_port), ("follower", args.follower_port)):
+    for role, port, want_ser in (("leader", args.leader_port, args.leader_serial),
+                                 ("follower", args.follower_port, args.follower_serial)):
+        if port is None:
+            # The serial was not on any /dev/ttyACM*, which is already reported
+            # above. Do not try to stat a path that does not exist -- Path(None)
+            # raised TypeError and took the whole check down with a traceback
+            # instead of the answer the operator needs.
+            print(f"[FAIL] {role:8s} port unresolved: no /dev/ttyACM* with serial "
+                  f"{want_ser} (is the arm plugged in and powered?)")
+            ok = False
+            continue
         p = Path(port)
         if p.exists():
             print(f"[ok]   {role:8s} port {port} exists")
         else:
             print(f"[FAIL] {role:8s} port {port} DOES NOT EXIST")
             ok = False
-    if args.leader_port == args.follower_port:
+    if args.leader_port is not None and args.leader_port == args.follower_port:
         print("[FAIL] leader and follower are the same port")
         ok = False
 
