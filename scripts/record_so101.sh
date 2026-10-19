@@ -35,12 +35,21 @@ FOLLOWER_ID="${FOLLOWER_ID:-mnri_arms_1_follower}"
 # hardcode these: enumeration order reverses when you replug or change USB
 # ports, and a stale path silently drives the wrong arm -- including writing
 # that arm's calibration into the other one's servos.
-if ! eval "$(bash "$REPO_ROOT/scripts/resolve_arm_ports.sh" \
-              --leader "$LEADER_SERIAL" --follower "$FOLLOWER_SERIAL" --emit)"; then
+# Test the exit status of the RESOLVER, not of eval. `eval "$(cmd)"` swallows
+# the failure: when cmd writes nothing to stdout (its errors go to stderr) the
+# command substitution is empty, `eval ""` succeeds, the guard never fires, and
+# set -u then dies later with a bare "LEADER_PORT: unbound variable" instead of
+# the useful message. Capture first, check the status, then eval.
+if ! resolved_ports="$(bash "$REPO_ROOT/scripts/resolve_arm_ports.sh" \
+                        --leader "$LEADER_SERIAL" --follower "$FOLLOWER_SERIAL" --emit)"; then
+  echo >&2
   echo "ERROR: could not resolve arm serials to serial ports. See above." >&2
+  echo "       Arms are identified by USB serial, never by /dev/ttyACM* order." >&2
   echo "       Check:  ls /dev/ttyACM*   and   bash scripts/resolve_arm_ports.sh" >&2
+  echo "       Both arms must be plugged in and powered." >&2
   exit 1
 fi
+eval "$resolved_ports"
 
 GLOBAL_CAM="${GLOBAL_CAM:-4}"
 WRIST_CAM="${WRIST_CAM:-2}"
@@ -53,17 +62,69 @@ WARMUP_S="${WARMUP_S:-5}"
 STREAMING_ENCODING="${STREAMING_ENCODING:-true}"
 ENCODER_THREADS="${ENCODER_THREADS:-2}"
 
+# --- which cameras are mounted upside down ----------------------------------
+# VFLIP_CAMS holds camera NAMES (global, wrist, both, none); the flip itself
+# is applied by scripts/so101_camera_flip.py, which the Python wrapper installs.
+# Resolve the names to /dev/videoN indices here, because that is the only
+# handle the camera object carries.
+VFLIP_CAMS="${VFLIP_CAMS:-none}"
+# A typo in this variable would silently record an upside-down dataset, so an
+# unrecognised token is a hard error rather than "flip nothing".
+for tok in ${VFLIP_CAMS//,/ }; do
+  case "$tok" in
+    none|global|wrist|all|both) ;;
+    *)
+      echo "ERROR: VFLIP_CAMS='$VFLIP_CAMS' contains unknown camera '$tok'." >&2
+      echo "       Valid: none, global, wrist, both, all (comma-separated)." >&2
+      exit 2
+      ;;
+  esac
+done
+VFLIP_IDX=""
+for cam_name in global wrist; do
+  case ",${VFLIP_CAMS}," in
+    *",${cam_name},"*|*,all,*|*,both,*)
+      case "$cam_name" in
+        global)  cam_idx="$GLOBAL_CAM" ;;
+        wrist)   cam_idx="$WRIST_CAM" ;;
+      esac
+      VFLIP_IDX="${VFLIP_IDX:+$VFLIP_IDX,}$cam_idx"
+      ;;
+  esac
+done
+VFLIP_FLAG="--vflip=$VFLIP_IDX"
+
+# "2,4" -> "/dev/video2 /dev/video4"; "" -> "no camera flipped".
+flip_summary() {
+  local idx="$1"
+  if [[ -z "$idx" ]]; then
+    echo "no camera flipped (frames recorded as the cameras deliver them)"
+  else
+    local out=""
+    local i
+    for i in ${idx//,/ }; do out+="/dev/video$i "; done
+    echo "${out% } (recorded upright)"
+  fi
+}
+
 REPO_ID="${REPO_ID:-thakk100/so101_single_arm_6dof}"
 RECORD_TASK="${RECORD_TASK:-push the duck into the square tape}"
 NUM_EPISODES="${NUM_EPISODES:-100}"
 EPISODE_TIME_S="${EPISODE_TIME_S:-30}"
 DRY_RUN=""
 PROFILE=""
+TURN_FLAG=""
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN="--dry-run"; shift ;;
     --profile) PROFILE="--profile=30"; shift ;;
     --profile=*) PROFILE="$arg"; shift ;;
+    --no-turn)
+      # Escape hatch: fall back to LeRobot's timer-driven reset, where 'n' cuts
+      # the reset short and an episode can start before the duck is placed.
+      echo "WARNING: --no-turn requested. Episodes will start on a timer, not when" >&2
+      echo "         you say the scene is ready. First frames may catch the reset." >&2
+      TURN_FLAG="--no-turn"; shift ;;
     --watch)
       echo "ERROR: --watch is a check_pose_sync.py flag, not a record flag." >&2
       echo "       To watch the leader/follower alignment live, run:" >&2
@@ -73,7 +134,7 @@ for arg in "$@"; do
     *)
       echo "ERROR: unknown argument '$arg'." >&2
       echo "       record_so101.sh takes no positional arguments." >&2
-      echo "       Flags: --dry-run, --profile[=SECONDS]" >&2
+      echo "       Flags: --dry-run, --profile[=SECONDS], --no-turn" >&2
       exit 2 ;;
   esac
 done
@@ -183,6 +244,7 @@ cat <<EOF
  follower  $FOLLOWER_PORT  (serial $FOLLOWER_SERIAL, id=$FOLLOWER_ID)
  cameras   global=/dev/video$GLOBAL_CAM  wrist=/dev/video$WRIST_CAM
            ${WIDTH}x${HEIGHT} @ ${CAMERA_FPS}fps capture, recorded at ${FPS}fps
+ flip      VFLIP_CAMS="$VFLIP_CAMS" -> $(flip_summary "$VFLIP_IDX")
  dataset   $REPO_ID  -> $DATASET_ROOT
  task      "$RECORD_TASK"
  episodes  $NUM_EPISODES x ${EPISODE_TIME_S}s
@@ -191,6 +253,29 @@ cat <<EOF
              elif [[ "$USE_WEB" == "true" ]]; then echo "browser  http://localhost:${DEBUG_PORT:-9090}/?url=rerun%2Bhttp%3A%2F%2Flocalhost%3A${GRPC_PORT}%2Fproxy";
              else echo "native Rerun window (spawned automatically)"; fi)
  labels    s=success+end  f=failure+end  d=discard+re-record  n=end+keep  q=quit
+ turn      SPACE = "duck is placed, start recording".  Waits here first, and
+           after every episode, so nothing records while you reset.
+           (--no-turn goes back to LeRobot's timer reset.)
+EOF
+
+# The prompt list and the zone keys, printed outside the heredoc so the long
+# strings are not mangled by its expansion rules. Sourced from so101_env.sh,
+# which is the single source of truth for both.
+echo " prompts   (press the number BEFORE the take; applies to the next episode)"
+i=0
+while IFS= read -r p; do
+  i=$((i + 1))
+  printf '             %d  %s\n' "$i" "$p"
+done < <(printf '%s\n' "${TASK_PROMPTS:-}" | tr '|' '\n')
+zn=0
+zlist=""
+for k in ${ZONE_KEYS:-}; do
+  zn=$((zn + 1))
+  zlist+="${k}=${zn} "
+done
+cat <<EOF
+ zones      $zlist(press while placing the duck; z clears)
+           coverage:  .venv/bin/python scripts/episode_outcomes.py --root $DATASET_ROOT
 ============================================================
 
 EOF
@@ -225,6 +310,8 @@ exec "$PY" "$REPO_ROOT/scripts/record_so101.py" \
   --guard-retries="${GUARD_RETRIES:-4}" \
   --guard-motor-delay="${GUARD_MOTOR_DELAY:-0.25}" \
   --guard-retry-delay="${GUARD_RETRY_DELAY:-0.4}" \
+  "$VFLIP_FLAG" \
+  ${TURN_FLAG} \
   ${DRY_RUN} \
   ${PROFILE} \
   --robot.type=so101_follower \

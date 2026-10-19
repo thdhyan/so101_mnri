@@ -21,10 +21,17 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
+
+# Same source of truth for camera orientation as the recorder
+# (scripts/so101_env.sh -> VFLIP_CAMS). scripts/ lives beside vla/.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import so101_camera_flip  # noqa: E402
 
 from vla.rollout import load_policy, _to_tensor
 
@@ -106,9 +113,16 @@ class FollowerArm:
 
 
 class RealCamera:
-    """OpenCV camera for real-world capture."""
+    """OpenCV camera for real-world capture.
+
+    Opens with raw cv2.VideoCapture, NOT LeRobot's OpenCVCamera, so it does not
+    get the recorder's camera-flip patch for free. apply_to_frame() applies the
+    same VFLIP_CAMS from scripts/so101_env.sh, which is what keeps inference
+    seeing the same orientation the policy was trained on.
+    """
 
     def __init__(self, device_id: int | str, width: int = 640, height: int = 480):
+        self.device_id = device_id
         self.cap = cv2.VideoCapture(int(device_id) if isinstance(device_id, int) else device_id)
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
@@ -119,7 +133,9 @@ class RealCamera:
         ret, frame = self.cap.read()
         if not ret:
             raise RuntimeError("Failed to read from camera")
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        # Flip last, matching the recorder's ordering in _postprocess_image.
+        return so101_camera_flip.apply_to_frame(rgb, self.device_id)
 
     def close(self):
         self.cap.release()

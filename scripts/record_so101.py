@@ -20,7 +20,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import so101_torque_guard  # noqa: E402
+import episode_trigger  # noqa: E402
 import episode_outcome_keys  # noqa: E402
+import episode_task  # noqa: E402
+import so101_camera_flip  # noqa: E402
 
 
 def main() -> int:
@@ -62,11 +65,40 @@ def main() -> int:
     per_motor_delay = guard_opts["--guard-motor-delay"]
     retry_delay = guard_opts["--guard-retry-delay"]
 
+    # --vflip INDEXES: which /dev/videoN are mounted upside down. Resolved from
+    # VFLIP_CAMS in so101_env.sh by the launcher, which is where the hardware
+    # assignment lives. An inverted camera silently records a dataset a policy
+    # cannot learn from, so a failed patch refuses to record -- same rule as
+    # the torque guard.
+    flip_raw = ""
+    for arg in list(argv):
+        if arg.startswith("--vflip="):
+            flip_raw = arg.split("=", 1)[1]
+            argv = [a for a in argv if not a.startswith("--vflip")]
+    flip_idx = {int(x) for x in flip_raw.replace(" ", "").split(",") if x.strip()}
+    if not so101_camera_flip.install(flip_idx):
+        print("ERROR: could not install the camera flip patch; refusing to record, "
+              "because an inverted camera writes a dataset that is upside down.",
+              file=sys.stderr)
+        return 1
+
     if not so101_torque_guard.install(retries, per_motor_delay, retry_delay):
         print("ERROR: could not install the torque guard; refusing to record, because "
               "an unguarded connect() can slam the follower into its limits.",
               file=sys.stderr)
         return 1
+
+    # Turn-based recording FIRST: it wraps create_key_listener, and
+    # episode_outcome_keys wraps the same hook on top, so outcome keys are
+    # matched before the turn key falls through to episode_trigger. Installing
+    # it the other way round would let 'n' end the reset early, which is the
+    # whole bug this fixes.
+    want_turn = "--no-turn" not in argv
+    argv = [a for a in argv if a != "--no-turn"]
+    if want_turn and not episode_trigger.install():
+        print("WARNING: turn-based control unavailable; the reset phase will end on "
+              "LeRobot's timer and episodes may start before the duck is placed.",
+              file=sys.stderr)
 
     # s/f/d keys: label each episode success/failure, or discard and re-record.
     want_outcomes = "--no-outcomes" not in argv
@@ -75,6 +107,14 @@ def main() -> int:
         print("WARNING: episode success/failure labels are unavailable this run. "
               "Recording will still work; episodes will just be unlabeled.",
               file=sys.stderr)
+
+    # Per-episode prompts: overwrites the hardcoded --dataset.single_task on
+    # each frame, which is what makes this a stock multi-task LeRobotDataset.
+    # Installed after episode_outcome_keys so it wraps save_episode on top of
+    # the labelling wrapper rather than underneath it.
+    if not episode_task.install():
+        print("WARNING: per-episode prompts unavailable; every episode will be "
+              "recorded with the single --dataset.single_task string.", file=sys.stderr)
 
     # --profile SECONDS: measure the real record_loop, then report a breakdown.
     profile_for = None
@@ -102,6 +142,7 @@ def main() -> int:
     print("[guard] Goal_Position will be synced to Present_Position before torque is "
           "enabled, so the arm holds its current pose instead of driving to 0.",
           flush=True)
+    print(f"[flip] vertical flip: {so101_camera_flip.describe()}", flush=True)
 
     # --dry-run: prove the guard installed and LeRobot accepts the argv, then
     # stop. Touches no hardware, so this is safe to run any time.
@@ -125,7 +166,8 @@ def main() -> int:
         print(f"[dry-run] cameras {list(cfg.robot.cameras)}")
         for n, cam in cfg.robot.cameras.items():
             print(f"[dry-run]   {n}: /dev/video{cam.index_or_path} {cam.width}x{cam.height} "
-                  f"@{cam.fps} {cam.fourcc} {cam.color_mode.value} warmup={cam.warmup_s}s")
+                  f"@{cam.fps} {cam.fourcc} {cam.color_mode.value} warmup={cam.warmup_s}s"
+                  f"  vflip={so101_camera_flip.is_flipped(cam.index_or_path)}")
         print(f"[dry-run] dataset {cfg.dataset.repo_id} root={cfg.dataset.root} "
               f"fps={cfg.dataset.fps} task={cfg.dataset.single_task!r}")
         print(f"[dry-run] resume={cfg.resume} display={cfg.display_mode} "

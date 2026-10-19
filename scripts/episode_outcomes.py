@@ -13,14 +13,21 @@ rather than patching the schema, so:
 Layout, written to <dataset_root>/meta/outcomes.json:
 
     {"version": 1,
-     "episodes": {"0": {"outcome": "success", "n_frames": 450,
-                        "duration_s": 30.0, "recorded_at": "..."},
+     "episodes": {"0": {"outcome": "success", "zone": 3, "n_frames": 450,
+                        "recorded_at": "..."},
                   "1": {"outcome": "failure", ...}}}
 
-Outcomes: success | failure | unlabeled (not in the file) | discarded
-(kept on disk, but marked so it can be excluded).
+``zone`` is the duck start zone (1-10) the operator marked while placing the
+duck; it is absent on episodes recorded before zones existed, and on takes where
+no zone key was pressed. It is the coverage record: a dataset where every
+episode shares one zone is one demonstration recorded many times.
 
-    python scripts/episode_outcomes.py --root data/thakk100_so101_single_arm_6dof
+Outcomes: success | failure | discarded | unlabeled, where "unlabeled" means a
+zone was recorded but no human verdict. An episode with no entry at all was
+never reviewed. Both are unusable for success-only training and are counted
+separately by ``report()``.
+
+    python scripts/episode_outcomes.py --root data/thakk100_pink_duck_in_a_box
     python scripts/episode_outcomes.py --root ... --export successes.csv
 """
 
@@ -33,7 +40,12 @@ import sys
 import time
 from pathlib import Path
 
-VALID = ("success", "failure", "discarded")
+VALID = ("success", "failure", "discarded", "unlabeled")
+# The outcomes a human actually decided. "unlabeled" is storable but is not a
+# decision -- it is what an episode looks like when a start zone was recorded
+# but no s/f was ever pressed, which is different from an episode nobody
+# touched at all.
+DECIDED = ("success", "failure", "discarded")
 OUTCOMES_FILE = Path("meta") / "outcomes.json"
 VERSION = 1
 
@@ -94,21 +106,28 @@ def report(dataset_root: str | Path) -> int:
     eps = data.get("episodes", {})
     n_total = total_episodes(dataset_root)
 
-    counts = {o: 0 for o in VALID}
+    counts = {o: 0 for o in DECIDED}
     for rec in eps.values():
-        counts[rec.get("outcome", "success")] = counts.get(rec.get("outcome", "success"), 0) + 1
-    labeled = sum(counts.values())
-    unlabeled = max(n_total - labeled, 0)
+        o = rec.get("outcome", "success")
+        counts[o] = counts.get(o, 0) + 1
+    decided = sum(counts.values())
+    # An episode with no entry at all was never looked at; one stored as
+    # "unlabeled" has a zone but no human verdict. Both are unusable, and the
+    # distinction tells you whether the gap is a missing keypress or a missing
+    # review.
+    never_touched = max(n_total - len(eps), 0)
+    unlabeled = counts.get("unlabeled", 0) + never_touched
 
     print(f"dataset: {dataset_root}")
     if n_total:
         print(f"episodes in dataset: {n_total}")
-    print(f"labeled:            {labeled}")
-    for o in VALID:
+    print(f"labeled:            {decided}")
+    for o in DECIDED:
         bar = "#" * min(40, counts[o])
         print(f"  {o:10s} {counts[o]:5d}  {bar}")
     if unlabeled:
-        print(f"  {'unlabeled':10s} {unlabeled:5d}  (no s/f pressed for these)")
+        detail = f" ({never_touched} never reviewed)" if never_touched else ""
+        print(f"  {'unlabeled':10s} {unlabeled:5d}  (no s/f pressed){detail}")
 
     if n_total:
         usable = counts["success"]
@@ -120,6 +139,49 @@ def report(dataset_root: str | Path) -> int:
         shown = ", ".join(str(i) for i in missing[:20])
         more = f" (+{len(missing) - 20} more)" if len(missing) > 20 else ""
         print(f"\n  unlabeled episode indices: {shown}{more}")
+
+    # Duck start zones. Coverage is the thing that actually decides whether the
+    # dataset is useful, and it is invisible unless it is counted: 100 episodes
+    # from one duck placement is one episode, recorded 100 times.
+    zones: dict[int, int] = {}
+    for rec in eps.values():
+        z = rec.get("zone")
+        if isinstance(z, int):
+            zones[z] = zones.get(z, 0) + 1
+    if zones or n_total:
+        print("\n  duck start zones:")
+        unzoned = max(n_total - sum(zones.values()), 0)
+        for z in sorted(zones):
+            bar = "#" * min(40, zones[z])
+            print(f"    zone {z:<2d} {zones[z]:5d}  {bar}")
+        if unzoned:
+            print(f"    {'none':6s} {unzoned:5d}  (episode not attributed to a zone)")
+        # Report the spread, not a fixed denominator: how many zones exist is
+        # the operator's choice (this rig is taped as a 2x2, zones 1-4), and
+        # hardcoding 10 would make a healthy 4-zone rig look like it is short
+        # six zones.
+        if zones:
+            lo, hi = min(zones), max(zones)
+            spread = f"zones {lo}-{hi}" if hi > lo else f"zone {lo}"
+            print(f"    -> {len(zones)} of {hi - lo + 1} in use ({spread})"
+                  + (f"; {unzoned} episodes unzoned" if unzoned else ""))
+        elif n_total:
+            print(f"    -> none recorded yet; {unzoned} episodes unzoned")
+
+    # Prompts. Multi-task coverage has its own failure mode: a dataset can look
+    # healthy by count while one prompt holds 95% of it, which trains a policy
+    # that ignores the instruction.
+    prompts: dict[str, int] = {}
+    for rec in eps.values():
+        t = rec.get("task")
+        if isinstance(t, str):
+            prompts[t] = prompts.get(t, 0) + 1
+    if prompts:
+        print("\n  prompts:")
+        for t, c in sorted(prompts.items(), key=lambda kv: -kv[1]):
+            bar = "#" * min(40, c)
+            print(f"    {c:5d}  {bar}  {t}")
+        print(f"    -> {len(prompts)} distinct prompt(s) recorded")
     return 0
 
 
@@ -134,7 +196,8 @@ def export(dataset_root: str | Path, out_csv: str, only: set[str]) -> int:
     if not rows:
         print("nothing to export", file=sys.stderr)
         return 1
-    fields = ["episode_index", "outcome", "n_frames", "duration_s", "recorded_at"]
+    fields = ["episode_index", "outcome", "zone", "task_id", "task", "n_frames",
+              "duration_s", "recorded_at"]
     with open(out_csv, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         w.writeheader()

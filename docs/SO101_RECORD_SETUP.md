@@ -227,12 +227,50 @@ means two `-L` forwards, not one.
 |---|---|---|
 | arm, USB serial `5AAF263743` | **leader** — the arm in your hand | |
 | arm, USB serial `5AAF263600` | **follower** — the arm on the table | |
-| `/dev/video2` | `Innomaker-U20CAM-720P` | **wrist**, 1280x720 |
-| `/dev/video4` | `USB Camera` | **global**, 1920x1080 native |
+| `/dev/video2` | `USB Camera` (32e6:9221) | **global** — whole table. Was `video4` before the 2026-09-26 replug |
+| `/dev/video4` | `Innomaker-U20CAM-720P` (0c45:6367) | **wrist** — on the follower's wrist. Was `video2` |
 | `/dev/video0` | laptop `Integrated Camera` | unused — black frame |
 
 Odd `/dev/videoN` indices are UVC *metadata* nodes, not capture devices. Only
 even indices stream.
+
+**The two cameras swapped indices on 2026-09-26, not roles.** They were
+replugged and `/dev/video2` / `/dev/video4` exchanged. Confirmed from each
+camera's own frame, with the USB device names agreeing. If the views look
+swapped after a replug, check
+`v4l2-ctl -d /dev/videoN --info | grep 'Card type'` against the table above and
+fix `GLOBAL_CAM` / `WRIST_CAM` in `scripts/so101_env.sh`.
+
+## Camera orientation — one camera is mounted inverted
+
+The global camera is mounted upside down, so its frames arrive that way. There
+is no V4L2 flip control on either camera (`v4l2-ctl -L` shows only
+brightness/contrast/exposure), and LeRobot's `rotation` only accepts
+0/90/180/−90 — where 180 also mirrors left-right, which is the wrong transform.
+So `scripts/so101_camera_flip.py` flips the frame in
+`OpenCVCamera._postprocess_image`.
+
+Configured by camera **name** in `scripts/so101_env.sh`:
+
+```bash
+VFLIP_CAMS=global    # the inverted one; or wrist / both / none
+```
+
+An unrecognised value is a hard error, because a typo would quietly record an
+upside-down dataset. The flip is applied in the camera's own read thread, so it
+costs the record loop nothing (`cv2.flip` on 640×480×3 is 0.026 ms, and the
+recorder only peeks at the buffer via `read_latest()`).
+
+```bash
+.venv/bin/python scripts/so101_camera_flip.py --snap 2,4 --snap-out /tmp/flip
+.venv/bin/python scripts/test_camera_flip.py     # offline, no hardware
+```
+
+A vertical flip cannot be detected from mean/std — it only reorders pixels — so
+confirm it by eye against the live view. **Any capture path that does not go
+through LeRobot's `OpenCVCamera` must call
+`so101_camera_flip.apply_to_frame()`** or it will feed the policy inverted
+frames; `vla/deploy.py:RealCamera` and `vla/record_demos.py` do.
 
 ### Identify arms by USB serial, never by `/dev/ttyACM*`
 

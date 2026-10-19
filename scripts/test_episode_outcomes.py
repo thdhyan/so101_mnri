@@ -144,13 +144,96 @@ def main() -> int:
         check(eps.get("1", {}).get("n_frames") == 1, "n_frames is the episode's own length")
         check("2" not in eps, "episode 2 left unlabeled when no key pressed")
 
+        # --- duck start zones -------------------------------------------------
+        # A zone is chosen while the duck is placed and applies to the episode
+        # saved next. The important asymmetry: it SURVIVES a re-record (the
+        # duck has not moved), and is consumed by exactly one save.
+        print("\n  duck start zones:")
+        E._PENDING.clear()
+        E.set_zone(3, quiet=True)
+        ds.add_frame(make_frame())
+        dispatch("s")
+        check(E._PENDING.get("outcome") == "success", "digit-zone take also labels outcome")
+
+        # 'd' drops the take but the duck is still in zone 3.
+        ds.clear_episode_buffer()
+        check(E._PENDING_ZONE == 3, "zone SURVIVES a re-record (duck did not move)")
+
+        # The retake: same zone, and this time it is actually saved.
+        ds.add_frame(make_frame())
+        dispatch("s")
+        ds.save_episode()
+        check(E._PENDING_ZONE is None, "zone consumed by the save it was attached to")
+
+        retake = int(ds.num_episodes) - 1
+        eps = json.loads((root / "meta" / "outcomes.json").read_text())["episodes"]
+        check(eps[str(retake)].get("zone") == 3, f"episode {retake} carries zone 3")
+        check(eps[str(retake)].get("outcome") == "success", f"episode {retake} labelled success")
+
+        # digit mapping: digits now select PROMPTS, letters select zones
+        check(len(E.PROMPT_KEYS) == len(E.tasks()),
+              f"one prompt key per configured prompt (got {len(E.PROMPT_KEYS)})")
+        check(set(E.PROMPT_KEYS) == {str(i) for i in range(1, len(E.tasks()) + 1)},
+              "prompt keys are 1..N with no gaps")
+        check(E.ZONE_KEYS.get("i") == 1 and E.ZONE_KEYS.get("l") == 4,
+              f"letters map to zones 1-4 (got {E.ZONE_KEYS})")
+        check(not (set(E.ZONE_KEYS) & set(E.PROMPT_KEYS)),
+              "zone keys and prompt keys do not collide")
+
+        # prompt selection -> what actually lands in the frame's `task`
+        print("\n  prompts:")
+        E.set_task(2, quiet=True)
+        check(E.current_task_id() == 2, "digit 2 selects prompt 2")
+        check(E.current_task() == E.tasks()[1], "prompt 2 resolves to TASK_PROMPTS[1]")
+        E.set_task(None, quiet=True)
+        check(E.current_task() is None, "prompt can be cleared -> falls back to RECORD_TASK")
+        before = len(E.PROMPT_KEYS)
+        E.set_task(before + 5, quiet=True)
+        check(E.current_task() is None, "an out-of-range prompt number is rejected, not clamped")
+
+        # a zone with no s/f at all is stored as 'unlabeled', not dropped
+        E.set_zone(7, quiet=True)
+        ds.add_frame(make_frame())
+        ds.save_episode()
+        eps = json.loads((root / "meta" / "outcomes.json").read_text())["episodes"]
+        zoned = int(ds.num_episodes) - 1
+        check(eps[str(zoned)].get("zone") == 7, "zoned take is kept even with no verdict")
+        check(eps[str(zoned)].get("outcome") == "unlabeled", "zoned take with no s/f is 'unlabeled'")
+
+        # 'z' clears a zone pressed by mistake
+        E.set_zone(5, quiet=True)
+        dispatch("z")
+        check(E._PENDING_ZONE is None, "z clears the pending zone")
+
+        # coverage nudge fires on the 3rd consecutive take from one zone
+        E._ZONE_RUN, E._ZONE_RUN_LAST = 0, None
+        for i in range(E.ZONE_RUN_WARN):
+            E.set_zone(4, quiet=True)
+        check(E._ZONE_RUN == E.ZONE_RUN_WARN, "same-zone run is counted")
+        E.set_zone(6, quiet=True)
+        check(E._ZONE_RUN == 1, "changing zone resets the run")
+        check(E._PENDING_ZONE == 6, "new zone is pending after a reset")
+        E.set_zone(None, quiet=True)
+
+        # the prompt must survive a re-record, like the zone: the retake is the
+        # same task being attempted again
+        E.set_task(3, quiet=True)
+        E.set_zone(1, quiet=True)
+        ds.add_frame(make_frame())
+        dispatch("d")
+        check(E.current_task() == E.tasks()[2] and E._PENDING_ZONE == 1,
+              "prompt AND zone survive a 'd' re-record")
+        E.set_task(None, quiet=True)
+        E.set_zone(None, quiet=True)
+
         # The dataset schema must be untouched: outcomes live in a sidecar, so
         # meta/info.json gains no outcome field and stock LeRobot is unaffected.
         # (Re-instantiating LeRobotDataset here would hit the HF Hub for a
         # version of this fake repo_id, which fails offline, so read the
         # metadata directly instead.)
         info = json.loads((root / "meta" / "info.json").read_text())
-        check(info.get("total_episodes") == 3, "dataset recorded 3 episodes")
+        # 3 from the loop above, +1 zoned retake, +1 zoned with no verdict.
+        check(info.get("total_episodes") == 5, "dataset recorded 5 episodes")
         check(not any("outcome" in k for k in info.get("features", {})),
               "no outcome field leaked into the dataset schema")
         check((root / "meta" / "outcomes.json").is_file(),
@@ -171,7 +254,11 @@ def main() -> int:
               "CSV export written")
         if csv_path.is_file():
             rows = csv_path.read_text().strip().splitlines()
-            check(len(rows) == 2, "CSV filtered to the 1 success (+header)")
+            # episode 0 and the zoned retake are the two successes.
+            check(len(rows) == 3, "CSV filtered to the 2 successes (+header)")
+            check("zone" in rows[0], "CSV carries the zone column")
+            check(any(r.startswith(f"{retake},") and ",3," in r for r in rows[1:]),
+                  f"CSV row for episode {retake} carries zone 3")
     finally:
         shutil.rmtree(td, ignore_errors=True)
 
