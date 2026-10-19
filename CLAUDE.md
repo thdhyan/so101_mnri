@@ -43,6 +43,20 @@ Patches, all monkeypatches installed before LeRobot runs:
 - `record_loop_profile.py`: only used with `--profile`.
 
 Invariants (each one is a bug that has already happened):
+- **Never recalibrate the arms.** `robots/so101/calibration/mnri_arms_1_{leader,follower}.json`
+  are the verified calibration, and the two arms are compared in degrees
+  derived from them. Re-calibrating one arm moves its zero point, so the pose
+  gate either blocks every session or lets a 99° mismatch through — and
+  `record_loop` calls `send_action()` on its first tick, so a mismatch makes
+  six servos lunge against gravity, stalls them, sags the rail and kills the
+  Feetech bus. It presents as a flaky cable, not a software bug. A lazy sweep
+  also records a range wider than the real travel, and the joint then reads
+  pinned at ~1 % or ~99 % on every read (the follower's `shoulder_lift` was
+  recorded over the full 0..4095 raw span; it really travels 756..3097). If a
+  joint is at a limit it should not be at, READ it with
+  `scripts/check_joint_range.py --arm <arm> --compare` and correct
+  `range_min` / `range_max` by hand — do not recalibrate. `calibrate_arm.py`
+  overwrites the file AND the arm's EEPROM.
 - `episode_outcome_keys._EVENTS` must BE LeRobot's `events` dict, never a
   copy. With a copy, `d` and the `--profile` stop silently do nothing.
 - A re-record (`clear_episode_buffer`) must clear any pending label, or it

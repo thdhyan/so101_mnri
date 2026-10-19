@@ -493,6 +493,19 @@ and it has nothing to do with a recording session. Run it with
 
 ## Known traps
 
+- **Do not recalibrate the arms.** `robots/so101/calibration/mnri_arms_1_{leader,follower}.json`
+  are the verified calibration, and the leader and the follower are compared in
+  degrees derived from them. Re-calibrating one arm moves its zero point, so
+  the pose gate either blocks every session or lets a 99° mismatch through —
+  and `record_loop` calls `send_action()` on its first tick, so a mismatch
+  makes six servos lunge against gravity, stalls them, sags the rail and kills
+  the Feetech bus. It presents as a flaky cable, not a software bug. A lazy
+  sweep also records a range wider than the real travel, and the joint then
+  reads pinned at ~1 % or ~99 % on every read. If a joint really is at a limit
+  it should not be at, read it with
+  `scripts/check_joint_range.py --arm <arm> --compare` and correct
+  `range_min` / `range_max` by hand. `scripts/calibrate_arm.py` overwrites the
+  file **and** the arm's EEPROM.
 - **Never hardcode `/dev/ttyACM*`.** Enumeration order reverses on replug; it
   did on 2026-09-25 and the run wrote the follower's calibration into the
   leader's servos. `scripts/so101_env.sh` holds serials;
