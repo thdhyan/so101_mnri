@@ -1,6 +1,17 @@
 __pycache__/
 *.pyc
 .DS_Store
+.venv/
+rl/runs/
+MUJOCO_LOG.TXT
+isaacsim/
+*.egg-info/
+
+# Real-robot recordings and camera-tuning output. data/ holds multi-GB
+# LeRobotDatasets (video + parquet) and the legacy hand-rolled .npz episodes;
+# none of it belongs in git.
+data/
+
 images/*
 !images/single_arm_overview.png
 !images/dual_arm_overview.png
@@ -14,3 +25,12 @@ images/*
 !images/cyl_grasp_cameras.png
 !images/cyl_reach_overview.png
 !images/cyl_reach_cameras.png
+!images/push_t_overview.png
+!images/push_t_cameras.png
+!images/cube_push_ramp_overview.png
+!images/cube_push_ramp_cameras.png
+!images/cube_push_bridge_overview.png
+!images/cube_push_bridge_cameras.png
+
+# container secrets
+docker/.env

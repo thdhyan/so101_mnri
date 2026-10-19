@@ -4,9 +4,10 @@
 
   Two SO-101 arms (see ../../so101_single_arm/urdf/so101.urdf and its provenance
   notes) mounted on a common "world" root link via fixed joints, matching the
-  base placement in ../assets/scene.xml:
-    left_base  at xyz="0.18  0.28 0.82", quat="1 0 0 0" (identity)
-    right_base at xyz="0.18 -0.28 0.82", quat="1 0 0 0" (identity)
+  base placement in ../assets/scene.xml (bases 18 in = 0.4572 m apart in Y,
+  Z and X axes parallel — identity orientation):
+    left_base  at xyz="0.18  0.2286 0.82", quat="1 0 0 0" (identity)
+    right_base at xyz="0.18 -0.2286 0.82", quat="1 0 0 0" (identity)
   All links and joints are prefixed with "left_"/"right_". Every joint/link
   origin, inertial, and joint limit is otherwise identical to the single-arm
   model, which itself is derived verbatim from the official
@@ -31,7 +32,7 @@
   <link name="world"/>
 
   <joint name="left_base_fixed" type="fixed">
-    <origin xyz="0.18 0.28 0.82" rpy="0 0 0"/>
+    <origin xyz="0.18 0.2286 0.82" rpy="0 0 0"/>
     <parent link="world"/>
     <child link="left_base_link"/>
   </joint>
@@ -411,7 +412,7 @@
 
 
   <joint name="right_base_fixed" type="fixed">
-    <origin xyz="0.18 -0.28 0.82" rpy="0 0 0"/>
+    <origin xyz="0.18 -0.2286 0.82" rpy="0 0 0"/>
     <parent link="world"/>
     <child link="right_base_link"/>
   </joint>

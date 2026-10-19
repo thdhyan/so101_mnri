@@ -85,6 +85,9 @@ class SingleArmPickLiftEnvConfig:
     outside_cameras: list = field(default_factory=lambda: [
         CameraConfig("outside_left",  pos=(0.462, -0.110, 1.273), euler=(0.5,  3.5,  91.0), fov=65.0),
         CameraConfig("outside_right", pos=(0.382, -0.304, 1.066), euler=(65.0, 1.0,  -3.0), fov=65.0),
+        # Global cameras covering the entire workspace
+        CameraConfig("overhead_cam",  pos=(0.40, 0.0, 1.45), euler=(0.0, 0.0, 90.0), fov=65.0),
+        CameraConfig("front_cam",     pos=(0.40, -1.0, 1.05), euler=(75.0, 0.0, 0.0), fov=65.0),
     ])
 
     object: ObjectConfig = field(default_factory=ObjectConfig)

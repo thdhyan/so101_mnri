@@ -1,0 +1,83 @@
+<mujoco model="so101_single_arm_cube_push_ramp_scene">
+  <!-- meshdir is relative to THIS top-level file only (see HANDOFF invariant #4);
+       the included follower XML never sets meshdir. All angles below are radians
+       (compiler angle="radian"). -->
+  <compiler angle="radian" meshdir="../../../../robots/so101/meshes" autolimits="true"/>
+
+  <option timestep="0.002" gravity="0 0 -9.81"/>
+
+  <include file="../../../../robots/so101/so101_follower.xml"/>
+
+  <statistic center="0.38 0 0.55" extent="1.2" meansize="0.05"/>
+
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.3 0.3 0.3" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="120" elevation="-20"/>
+    <quality shadowsize="8192"/>
+  </visual>
+
+  <asset>
+    <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="3072"/>
+    <texture type="2d" name="groundplane" builtin="checker" mark="edge" rgb1="0.2 0.3 0.4" rgb2="0.1 0.2 0.3"
+      markrgb="0.8 0.8 0.8" width="300" height="300"/>
+    <material name="groundplane" texture="groundplane" texuniform="true" texrepeat="5 5" reflectance="0.2"/>
+    <material name="table_surface" rgba="0.85 0.75 0.6 1"/>
+    <material name="ramp_surface" rgba="0.55 0.55 0.60 1"/>
+    <material name="goal_marker_mat" rgba="0.1 0.9 0.1 0.35"/>
+  </asset>
+
+  <worldbody>
+    <light name="top_light"   pos="0.40 0.0 2.5"  dir="0 0 -1"        diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2" castshadow="true"/>
+    <light name="front_light" pos="0.5 -1.2 1.5"  dir="-0.1 0.6 -0.8" diffuse="0.5 0.5 0.5"/>
+
+    <!-- Floor -->
+    <geom name="floor" type="plane" size="3 3 0.01" material="groundplane" condim="3"/>
+
+    <!-- Table (same as pick_lift; top surface at z=0.82) -->
+    <geom name="table_top"     type="box"      size="0.40 0.35 0.02" pos="0.35 0.0 0.80"  material="table_surface" condim="3"/>
+    <geom name="table_leg_fl"  type="cylinder" size="0.02 0.40"      pos="0.70 0.30 0.40"/>
+    <geom name="table_leg_fr"  type="cylinder" size="0.02 0.40"      pos="0.70 -0.30 0.40"/>
+    <geom name="table_leg_bl"  type="cylinder" size="0.02 0.40"      pos="0.02 0.30 0.40"/>
+    <geom name="table_leg_br"  type="cylinder" size="0.02 0.40"      pos="0.02 -0.30 0.40"/>
+
+    <!-- Ramp: flat box 0.30 m (slope) x 0.15 m, inclined 15 deg.
+         Top-surface low edge pinned at P0 = (0.28, 0, 0.82) flush with the table,
+         rising toward +x so the arm pushes the cube UP the ramp.
+         Slope direction d = (cos15, 0, sin15); surface normal n = (-sin15, 0, cos15).
+         Box centre = P0 + d*0.15 - n*0.01 = (0.427477, 0, 0.849164).
+         quat = pitch about +y by -15 deg = (cos7.5, 0, -sin7.5, 0). -->
+    <body name="ramp" pos="0.427477 0 0.849164" quat="0.99144486 0 -0.13052619 0">
+      <geom name="ramp_geom" type="box" size="0.15 0.075 0.01"
+            material="ramp_surface" condim="3" friction="0.24 0.005 0.0001"/>
+    </body>
+
+    <!-- Red cube (4.5 cm) resting flush on the ramp near its base:
+         centre = P0 + d*0.0587 + n*0.0225 = (0.330881, 0, 0.856925), pitched to
+         match the slope. Reset in env.py re-places it with lateral jitter. -->
+    <body name="cube" pos="0.330881 0 0.856925" quat="0.99144486 0 -0.13052619 0">
+      <freejoint name="cube_joint"/>
+      <geom name="cube_geom" type="box" size="0.0225 0.0225 0.0225" mass="0.08"
+            rgba="0.85 0.2 0.2 1" condim="4" friction="0.24 0.005 0.0001"/>
+    </body>
+
+    <!-- Goal patch: visual-only green disc (r=7 cm), no collision, fixed near the
+         ramp top along the slope at s=0.24 from the low edge:
+         centre = P0 + d*0.24 + n*0.0032 = (0.510994, 0, 0.885207). -->
+    <body name="goal_patch" pos="0.510994 0 0.885207" quat="0.99144486 0 -0.13052619 0">
+      <geom name="goal_geom" type="cylinder" size="0.07 0.003"
+            material="goal_marker_mat" contype="0" conaffinity="0"/>
+    </body>
+
+    <!-- World-fixed cameras: positions/euler overridden at runtime from CameraConfig.
+         (XML euler values are radians here.) -->
+    <camera name="overhead_cam" pos="0.43 0.0 1.45" euler="0 0 1.5708" fovy="65"/>
+    <camera name="front_cam"    pos="0.43 -1.0 1.05" euler="1.309 0 0" fovy="65"/>
+  </worldbody>
+
+  <keyframe>
+    <key name="home"
+      qpos="0 -0.85 1.68 0.68 0 1.74533  0.330881 0 0.856925 0.99144486 0 -0.13052619 0"
+      ctrl="0 -0.85 1.68 0.68 0 1.74533"/>
+  </keyframe>
+</mujoco>

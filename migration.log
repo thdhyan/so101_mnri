@@ -1,0 +1,1083 @@
+=== so101 migration Wed Aug 12 08:19:27 PM CDT 2026 ===
+[1/6] Creating .venv (Python 3.11)...
+Using CPython 3.11.15
+Creating virtual environment at: .venv
+Activate with: source .venv/bin/activate
+[2/6] Extracting conda deps...
+Package count: 119
+[3/6] Installing torch (cu121)...
+  × No solution found when resolving dependencies:
+  ╰─▶ Because there is no version of torch==2.12.1 and you require
+      torch==2.12.1, we can conclude that your requirements are unsatisfiable.
+Resolved 26 packages in 4.68s
+Downloading torch (744.8MiB)
+Downloading triton (160.3MiB)
+Downloading torchaudio (3.2MiB)
+Downloading torchvision (6.7MiB)
+Downloading nvidia-cufft-cu12 (116.0MiB)
+Downloading sympy (6.0MiB)
+Downloading pillow (6.8MiB)
+Downloading networkx (2.0MiB)
+Downloading nvidia-cuda-nvrtc-cu12 (22.6MiB)
+Downloading nvidia-cudnn-cu12 (697.8MiB)
+Downloading numpy (16.1MiB)
+ Downloaded torchaudio
+ Downloaded torchvision
+ Downloaded networkx
+ Downloaded pillow
+ Downloaded sympy
+ Downloaded numpy
+Downloading nvidia-cusparse-cu12 (186.9MiB)
+Downloading nvidia-nccl-cu12 (168.1MiB)
+Downloading nvidia-cuda-cupti-cu12 (13.5MiB)
+Downloading nvidia-cusolver-cu12 (118.4MiB)
+Downloading nvidia-cublas-cu12 (391.6MiB)
+Downloading nvidia-nvjitlink-cu12 (37.9MiB)
+Downloading nvidia-curand-cu12 (53.9MiB)
+ Downloaded triton
+ Downloaded nvidia-cuda-nvrtc-cu12
+ Downloaded nvidia-cufft-cu12
+ Downloaded nvidia-cudnn-cu12
+ Downloaded nvidia-cusparse-cu12
+ Downloaded nvidia-cuda-cupti-cu12
+ Downloaded nvidia-nccl-cu12
+ Downloaded nvidia-cusolver-cu12
+ Downloaded nvidia-nvjitlink-cu12
+ Downloaded torch
+ Downloaded nvidia-curand-cu12
+ Downloaded nvidia-cublas-cu12
+Prepared 26 packages in 1m 45s
+Installed 26 packages in 204ms
+ + filelock==3.29.0
+ + fsspec==2026.4.0
+ + jinja2==3.1.6
+ + markupsafe==3.0.3
+ + mpmath==1.3.0
+ + networkx==3.6.1
+ + numpy==2.4.4
+ + nvidia-cublas-cu12==12.1.3.1
+ + nvidia-cuda-cupti-cu12==12.1.105
+ + nvidia-cuda-nvrtc-cu12==12.1.105
+ + nvidia-cuda-runtime-cu12==12.1.105
+ + nvidia-cudnn-cu12==8.9.2.26
+ + nvidia-cufft-cu12==11.0.2.54
+ + nvidia-curand-cu12==10.3.2.106
+ + nvidia-cusolver-cu12==11.4.5.107
+ + nvidia-cusparse-cu12==12.1.0.106
+ + nvidia-nccl-cu12==2.20.5
+ + nvidia-nvjitlink-cu12==12.9.86
+ + nvidia-nvtx-cu12==12.1.105
+ + pillow==12.2.0
+ + sympy==1.14.0
+ + torch==2.3.1+cu121
+ + torchaudio==2.3.1+cu121
+ + torchvision==0.18.1+cu121
+ + triton==2.3.1
+ + typing-extensions==4.15.0
+[4/6] Installing warp-lang...
+Resolved 2 packages in 148ms
+Downloading warp-lang (155.5MiB)
+  × Failed to download `warp-lang==1.16.0`
+  ├─▶ Failed to extract archive:
+  │   warp_lang-1.16.0-py3-none-manylinux_2_28_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to write to file
+      `/home/thakk100/.cache/uv/.tmpyjSmR2/warp/bin/warp.so`: No space left on
+      device (os error 28)
+WARN: warp-lang failed, check manually
+[5/6] Installing remaining packages...
+Resolved 134 packages in 984ms
+Downloading nvidia-cusolver (191.6MiB)
+Downloading nvidia-cusparselt-cu13 (162.3MiB)
+Downloading nvidia-cusparse (139.2MiB)
+Downloading nvidia-cuda-nvrtc (86.0MiB)
+Downloading opencv-python (70.4MiB)
+Downloading nvidia-nvshmem-cu13 (57.6MiB)
+Downloading nvidia-curand (56.8MiB)
+Downloading nvidia-nvjitlink (38.8MiB)
+Downloading scipy (33.7MiB)
+Downloading onnx (18.2MiB)
+Downloading imageio-ffmpeg (28.1MiB)
+Downloading nvidia-cuda-cupti (10.2MiB)
+Downloading wandb (25.5MiB)
+Downloading matplotlib (9.6MiB)
+Downloading pillow (6.6MiB)
+Downloading grpcio (6.5MiB)
+Downloading cuda-bindings (6.4MiB)
+Downloading tensorboard-data-server (6.3MiB)
+Downloading zstandard (5.3MiB)
+Downloading tensorboard (5.3MiB)
+Downloading fonttools (4.8MiB)
+Downloading ml-dtypes (4.8MiB)
+Downloading jedi (4.7MiB)
+Downloading viser (4.8MiB)
+Downloading nvidia-cuda-runtime (2.1MiB)
+Downloading kiwisolver (1.4MiB)
+Downloading pynacl (1.3MiB)
+Downloading nvidia-cufile (1.2MiB)
+Downloading setuptools (1.0MiB)
+Downloading nvidia-nccl-cu13 (196.4MiB)
+Downloading nvidia-cublas (403.5MiB)
+Downloading nvidia-cufft (204.2MiB)
+Downloading nvidia-cudnn-cu13 (349.2MiB)
+Downloading triton (188.5MiB)
+Downloading torchvision (7.3MiB)
+Downloading mujoco-warp (2.0MiB)
+Downloading warp-lang (132.2MiB)
+Downloading torch (507.5MiB)
+ Downloaded setuptools
+ Downloaded nvidia-cufile
+  × Failed to download `mjviser==0.0.14`
+  ├─▶ Failed to write to the distribution cache
+  ╰─▶ No space left on device (os error 28) at path
+      "/home/thakk100/.cache/uv/.tmpJaHpPj"
+WARN: bulk install had issues, trying one by one...
+Resolved 1 package in 1ms
+Installed 1 package in 172ms
+ + absl-py==2.4.0
+Resolved 1 package in 1ms
+Installed 1 package in 168ms
+ + annotated-types==0.7.0
+Resolved 1 package in 1ms
+Prepared 1 package in 164ms
+Installed 1 package in 190ms
+ + asttokens==3.0.1
+Resolved 1 package in 1ms
+Installed 1 package in 134ms
+ + bcrypt==5.0.0
+Resolved 1 package in 1ms
+Installed 1 package in 1.90s
+ + certifi==2026.6.17
+Resolved 2 packages in 3ms
+Installed 2 packages in 488ms
+ + cffi==2.0.0
+ + pycparser==3.0
+Resolved 1 package in 3ms
+Installed 1 package in 71ms
+ + charset-normalizer==3.4.7
+Resolved 1 package in 1ms
+Installed 1 package in 166ms
+ + click==8.4.2
+Resolved 1 package in 1ms
+Prepared 1 package in 140ms
+Installed 1 package in 26ms
+ + cloudpickle==3.1.2
+Resolved 2 packages in 562ms
+Installed 1 package in 281ms
+ + contourpy==1.3.3
+Resolved 3 packages in 6ms
+Installed 1 package in 794ms
+ + cryptography==49.0.0
+Resolved 2 packages in 151ms
+Downloading cuda-bindings (6.4MiB)
+ Downloaded cuda-bindings
+Prepared 2 packages in 418ms
+Installed 2 packages in 61ms
+ + cuda-bindings==13.3.1
+ + cuda-pathfinder==1.6.0
+Resolved 1 package in 1ms
+Uninstalled 1 package in 37ms
+Installed 1 package in 89ms
+ - cuda-pathfinder==1.6.0
+ + cuda-pathfinder==1.5.6
+Resolved 1 package in 2ms
+Prepared 1 package in 672ms
+Installed 1 package in 62ms
+ + cuda-toolkit==13.0.2
+Resolved 1 package in 1ms
+Prepared 1 package in 219ms
+Installed 1 package in 61ms
+ + cycler==0.12.1
+Resolved 1 package in 1ms
+Prepared 1 package in 143ms
+Installed 1 package in 103ms
+ + decorator==5.3.1
+Resolved 2 packages in 180ms
+Prepared 2 packages in 103ms
+Installed 2 packages in 1.22s
+ + deprecated==1.3.1
+ + wrapt==2.3.0
+Resolved 1 package in 1ms
+Prepared 1 package in 159ms
+Installed 1 package in 52ms
+ + docstring-parser==0.18.0
+Resolved 1 package in 1ms
+Installed 1 package in 353ms
+ + etils==1.14.0
+Resolved 1 package in 1ms
+Prepared 1 package in 188ms
+Installed 1 package in 179ms
+ + executing==2.2.1
+Resolved 11 packages in 9ms
+Downloading pynacl (1.3MiB)
+ Downloaded pynacl
+Prepared 1 package in 929ms
+Installed 4 packages in 197ms
+ + fabric==3.2.3
+ + invoke==2.2.1
+ + paramiko==5.0.0
+ + pynacl==1.6.2
+Resolved 1 package in 1ms
+Prepared 1 package in 222ms
+Installed 1 package in 1ms
+ + farama-notifications==0.0.6
+Resolved 2 packages in 1ms
+   Building feetech-servo-sdk==1.0.0
+      Built feetech-servo-sdk==1.0.0
+Prepared 1 package in 6.59s
+Installed 2 packages in 189ms
+ + feetech-servo-sdk==1.0.0
+ + pyserial==3.5
+Resolved 1 package in 1ms
+Uninstalled 1 package in 0.62ms
+Installed 1 package in 89ms
+ - filelock==3.29.0
+ + filelock==3.29.4
+Resolved 1 package in 3ms
+Downloading fonttools (4.8MiB)
+ Downloaded fonttools
+Prepared 1 package in 985ms
+Installed 1 package in 184ms
+ + fonttools==4.63.0
+Resolved 1 package in 1ms
+Uninstalled 1 package in 0.93ms
+Installed 1 package in 633ms
+ - fsspec==2026.4.0
+ + fsspec==2026.6.0
+Resolved 2 packages in 41ms
+Prepared 1 package in 179ms
+Installed 2 packages in 242ms
+ + gitdb==4.0.12
+ + smmap==5.0.3
+Resolved 3 packages in 1ms
+Installed 1 package in 89ms
+ + gitpython==3.1.50
+Resolved 1 package in 1ms
+Installed 1 package in 120ms
+ + glfw==2.10.0
+Resolved 2 packages in 68ms
+Downloading grpcio (6.5MiB)
+ Downloaded grpcio
+Prepared 1 package in 530ms
+Installed 1 package in 60ms
+ + grpcio==1.81.1
+Resolved 5 packages in 6ms
+Installed 1 package in 62ms
+ + gymnasium==1.3.0
+Resolved 1 package in 1ms
+Installed 1 package in 793ms
+ + idna==3.18
+Resolved 3 packages in 6ms
+Installed 1 package in 76ms
+ + imageio==2.37.3
+Resolved 1 package in 1ms
+Downloading imageio-ffmpeg (28.1MiB)
+ Downloaded imageio-ffmpeg
+Prepared 1 package in 1.18s
+Installed 1 package in 162ms
+ + imageio-ffmpeg==0.6.0
+Resolved 2 packages in 1ms
+Prepared 1 package in 346ms
+Installed 2 packages in 237ms
+ + importlib-metadata==9.0.0
+ + zipp==4.1.0
+Checked 1 package in 1ms
+Resolved 18 packages in 143ms
+Downloading jedi (4.7MiB)
+  × Failed to download `jedi==0.20.0`
+  ├─▶ Failed to extract archive: jedi-0.20.0-py2.py3-none-any.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to flush file
+      `/home/thakk100/.cache/uv/.tmp3k4wSZ/jedi/third_party/typeshed/stdlib/encodings/mbcs.pyi`:
+      No space left on device (os error 28)
+
+hint: `jedi` (v0.20.0) was included because `ipython` (v9.15.0) depends on `jedi`SKIP: ipython==9.15.0
+Resolved 2 packages in 1ms
+Installed 2 packages in 504ms
+ + ipython-pygments-lexers==1.1.1
+ + pygments==2.20.0
+Resolved 2 packages in 1ms
+Downloading jedi (4.7MiB)
+  × Failed to download `jedi==0.20.0`
+  ├─▶ Failed to extract archive: jedi-0.20.0-py2.py3-none-any.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to flush file
+      `/home/thakk100/.cache/uv/.tmpCMqAEW/jedi/third_party/typeshed/stdlib/encodings/iso8859_16.pyi`:
+      No space left on device (os error 28)
+SKIP: jedi==0.20.0
+Checked 1 package in 1ms
+Resolved 1 package in 2ms
+Downloading kiwisolver (1.4MiB)
+ Downloaded kiwisolver
+Prepared 1 package in 358ms
+Installed 1 package in 60ms
+ + kiwisolver==1.5.0
+Resolved 1 package in 1ms
+Installed 1 package in 154ms
+ + markdown==3.10.2
+Resolved 2 packages in 1ms
+Installed 2 packages in 636ms
+ + markdown-it-py==4.2.0
+ + mdurl==0.1.2
+Checked 1 package in 1ms
+Resolved 11 packages in 21ms
+Downloading matplotlib (9.6MiB)
+  × Failed to download `matplotlib==3.11.0`
+  ├─▶ Failed to extract archive:
+  │   matplotlib-3.11.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to write to file
+      `/home/thakk100/.cache/uv/.tmpHtvUpw/matplotlib/_qhull.cpython-311-x86_64-linux-gnu.so`:
+      No space left on device (os error 28)
+SKIP: matplotlib==3.11.0
+Resolved 2 packages in 1ms
+Installed 2 packages in 9ms
+ + matplotlib-inline==0.2.2
+ + traitlets==5.16.1
+Checked 1 package in 1ms
+Resolved 29 packages in 3.33s
+Downloading matplotlib (9.6MiB)
+Downloading jedi (4.7MiB)
+  × Failed to download `ipython==9.16.1`
+  ├─▶ Failed to extract archive: ipython-9.16.1-py3-none-any.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to flush file
+      `/home/thakk100/.cache/uv/.tmpzRCoea/IPython/core/magic.py`: No space
+      left on device (os error 28)
+
+hint: `ipython` (v9.16.1) was included because `mediapy` (v1.2.7) depends on `ipython`SKIP: mediapy==1.2.7
+Resolved 27 packages in 922ms
+Downloading viser (4.8MiB)
+Downloading zstandard (5.3MiB)
+Downloading mujoco (17.9MiB)
+  × Failed to download `viser==1.0.30`
+  ├─▶ Failed to extract archive: viser-1.0.30-py3-none-any.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to write to file
+      `/home/thakk100/.cache/uv/.tmpFoca82/viser/_icons_enum.pyi`: No space
+      left on device (os error 28)
+
+hint: `viser` (v1.0.30) was included because `mjviser` (v0.0.14) depends on `viser`SKIP: mjviser==0.0.14
+Resolved 2 packages in 97ms
+Downloading ml-dtypes (4.8MiB)
+  × Failed to download `ml-dtypes==0.5.4`
+  ├─▶ Failed to extract archive:
+  │   ml_dtypes-0.5.4-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to write to file
+      `/home/thakk100/.cache/uv/.tmp3iJ51i/ml_dtypes/_ml_dtypes_ext.cpython-311-x86_64-linux-gnu.so`:
+      No space left on device (os error 28)
+SKIP: ml_dtypes==0.5.4
+Checked 1 package in 1ms
+Resolved 1 package in 2ms
+Installed 1 package in 74ms
+ + msgspec==0.21.1
+Resolved 9 packages in 6ms
+Installed 2 packages in 705ms
+ + mujoco==3.10.0
+ + pyopengl==3.1.10
+Resolved 11 packages in 6ms
+Downloading warp-lang (155.5MiB)
+Downloading mujoco-warp (2.0MiB)
+  × Failed to download `warp-lang==1.16.0`
+  ├─▶ Failed to extract archive:
+  │   warp_lang-1.16.0-py3-none-manylinux_2_28_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to flush file
+      `/home/thakk100/.cache/uv/.tmp3xP7y7/warp/__init__.pyi`: No space left
+      on device (os error 28)
+
+hint: `warp-lang` (v1.16.0) was included because `mujoco-warp` (v3.10.0.1) depends on `warp-lang`SKIP: mujoco-warp==3.10.0.1
+Checked 1 package in 1ms
+Resolved 1 package in 5ms
+Uninstalled 1 package in 13ms
+Installed 1 package in 80ms
+ - numpy==2.4.4
+ + numpy==2.4.6
+Resolved 5 packages in 5ms
+Downloading onnx (18.2MiB)
+Downloading ml-dtypes (4.8MiB)
+  × Failed to download `onnx==1.22.0`
+  ├─▶ Failed to extract archive:
+  │   onnx-1.22.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to flush file
+      `/home/thakk100/.cache/uv/.tmpwTjiNR/onnx/cpp2py_export.cc`: No space
+      left on device (os error 28)
+SKIP: onnx==1.22.0
+Resolved 8 packages in 7ms
+Downloading onnx (18.2MiB)
+Downloading ml-dtypes (4.8MiB)
+  × Failed to download `onnx==1.22.0`
+  ├─▶ Failed to extract archive:
+  │   onnx-1.22.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to flush file
+      `/home/thakk100/.cache/uv/.tmpQvYOcM/onnx/cpp2py_export.cc`: No space
+      left on device (os error 28)
+
+hint: `onnx` (v1.22.0) was included because `onnx-ir` (v0.2.1) depends on `onnx`SKIP: onnx-ir==0.2.1
+Resolved 10 packages in 129ms
+Downloading ml-dtypes (4.8MiB)
+Downloading onnx (18.2MiB)
+  × Failed to download `ml-dtypes==0.5.4`
+  ├─▶ Failed to extract archive:
+  │   ml_dtypes-0.5.4-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to flush file
+      `/home/thakk100/.cache/uv/.tmpSkWBPC/ml_dtypes/_ml_dtypes_ext.cpython-311-x86_64-linux-gnu.so`:
+      No space left on device (os error 28)
+
+hint: `ml-dtypes` (v0.5.4) was included because `onnxscript` (v0.7.1) depends on `ml-dtypes`SKIP: onnxscript==0.7.1
+Resolved 2 packages in 6ms
+Downloading opencv-python (70.4MiB)
+  × Failed to download `opencv-python==5.0.0.93`
+  ├─▶ Failed to extract archive:
+  │   opencv_python-5.0.0.93-cp37-abi3-manylinux_2_28_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to flush file
+      `/home/thakk100/.cache/uv/.tmpNJptet/cv2/__init__.pyi`: No space left on
+      device (os error 28)
+SKIP: opencv-python==5.0.0.93
+Resolved 1 package in 6ms
+Installed 1 package in 2ms
+ + orjson==3.11.9
+Resolved 1 package in 1ms
+Installed 1 package in 2ms
+ + packaging==26.0
+Checked 1 package in 1ms
+Resolved 1 package in 1ms
+Installed 1 package in 2ms
+ + parso==0.8.7
+Resolved 2 packages in 1ms
+Installed 2 packages in 1ms
+ + pexpect==4.9.0
+ + ptyprocess==0.7.0
+Resolved 1 package in 3ms
+Downloading pillow (6.6MiB)
+  × Failed to download `pillow==12.3.0`
+  ├─▶ Failed to extract archive:
+  │   pillow-12.3.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to flush file
+      `/home/thakk100/.cache/uv/.tmpxXYzGC/PIL/EpsImagePlugin.py`: No space
+      left on device (os error 28)
+SKIP: pillow==12.3.0
+Resolved 1 package in 1ms
+  × Failed to download `platformdirs==4.10.0`
+  ├─▶ Failed to extract archive: platformdirs-4.10.0-py3-none-any.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to write to file
+      `/home/thakk100/.cache/uv/.tmpbuE1rA/platformdirs/windows.py`: No space
+      left on device (os error 28)
+SKIP: platformdirs==4.10.0
+Resolved 2 packages in 1ms
+Installed 2 packages in 2ms
+ + prettytable==3.18.0
+ + wcwidth==0.8.2
+Resolved 2 packages in 1ms
+error: Failed to install: prompt_toolkit-3.0.52-py3-none-any.whl (prompt-toolkit==3.0.52)
+  Caused by: Failed to create directory `/home/thakk100/Projects/so101_mnri/.venv/lib/python3.11/site-packages/prompt_toolkit/completion`
+  Caused by: failed to create direc=== so101 migration Wed Aug 12 08:29:24 PM CDT 2026 ===
+[1/6] Creating .venv (Python 3.11)...
+Using CPython 3.11.15
+Creating virtual environment at: .venv
+error: Failed to create virtual environment
+  Caused by: A directory already exists at: .venv
+
+hint: Use the `--clear` flag or set `UV_VENV_CLEAR=1` to replace the existing directory
+=== so101 migration Wed Aug 12 08:30:18 PM CDT 2026 ===
+[1/6] Creating .venv (Python 3.11)...
+Using CPython 3.11.15
+Creating virtual environment at: .venv
+Activate with: source .venv/bin/activate
+[2/6] Extracting conda deps...
+Package count: 119
+[3/6] Installing torch (cu121)...
+  × No solution found when resolving dependencies:
+  ╰─▶ Because there is no version of torch==2.12.1 and you require
+      torch==2.12.1, we can conclude that your requirements are unsatisfiable.
+Resolved 26 packages in 2.89s
+Downloading torchaudio (3.2MiB)
+Downloading torchvision (6.7MiB)
+Downloading torch (744.8MiB)
+Downloading triton (160.3MiB)
+Downloading networkx (2.0MiB)
+Downloading nvidia-cusparse-cu12 (186.9MiB)
+Downloading nvidia-cudnn-cu12 (697.8MiB)
+Downloading sympy (6.0MiB)
+Downloading pillow (6.8MiB)
+Downloading nvidia-cufft-cu12 (116.0MiB)
+Downloading numpy (16.1MiB)
+Downloading nvidia-cuda-nvrtc-cu12 (22.6MiB)
+ Downloaded torchaudio
+ Downloaded torchvision
+ Downloaded networkx
+ Downloaded sympy
+ Downloaded pillow
+ Downloaded numpy
+ Downloaded triton
+=== so101 migration Wed Aug 12 08:30:39 PM CDT 2026 ===
+[1/6] Creating .venv (Python 3.11)...
+Using CPython 3.11.15
+Creating virtual environment at: .venv
+Activate with: source .venv/bin/activate
+[2/6] Extracting conda deps...
+Package count: 119
+[3/6] Installing torch (cu121)...
+Resolved 26 packages in 8ms
+Downloading nvidia-cuda-cupti-cu12 (13.5MiB)
+Downloading torch (744.8MiB)
+Downloading nvidia-cudnn-cu12 (697.8MiB)
+Downloading nvidia-cufft-cu12 (116.0MiB)
+Downloading nvidia-nccl-cu12 (168.1MiB)
+Downloading nvidia-cuda-nvrtc-cu12 (22.6MiB)
+Downloading nvidia-cusparse-cu12 (186.9MiB)
+Downloading nvidia-cublas-cu12 (391.6MiB)
+Downloading nvidia-cusolver-cu12 (118.4MiB)
+Downloading nvidia-nvjitlink-cu12 (37.9MiB)
+Downloading nvidia-curand-cu12 (53.9MiB)
+ Downloaded nvidia-cuda-cupti-cu12
+ Downloaded nvidia-cuda-nvrtc-cu12
+ Downloaded nvidia-nvjitlink-cu12
+ Downloaded nvidia-cufft-cu12
+ Downloaded nvidia-curand-cu12
+ Downloaded nvidia-cusolver-cu12
+ Downloaded nvidia-cusparse-cu12
+ Downloaded nvidia-nccl-cu12
+ Downloaded nvidia-cudnn-cu12
+ Downloaded nvidia-cublas-cu12
+ Downloaded torch
+Prepared 12 packages in 4m 03s
+Installed 26 packages in 1.59s
+ + filelock==3.29.0
+ + fsspec==2026.4.0
+ + jinja2==3.1.6
+ + markupsafe==3.0.3
+ + mpmath==1.3.0
+ + networkx==3.6.1
+ + numpy==2.4.4
+ + nvidia-cublas-cu12==12.1.3.1
+ + nvidia-cuda-cupti-cu12==12.1.105
+ + nvidia-cuda-nvrtc-cu12==12.1.105
+ + nvidia-cuda-runtime-cu12==12.1.105
+ + nvidia-cudnn-cu12==8.9.2.26
+ + nvidia-cufft-cu12==11.0.2.54
+ + nvidia-curand-cu12==10.3.2.106
+ + nvidia-cusolver-cu12==11.4.5.107
+ + nvidia-cusparse-cu12==12.1.0.106
+ + nvidia-nccl-cu12==2.20.5
+ + nvidia-nvjitlink-cu12==12.9.86
+ + nvidia-nvtx-cu12==12.1.105
+ + pillow==12.2.0
+ + sympy==1.14.0
+ + torch==2.3.1+cu121
+ + torchaudio==2.3.1+cu121
+ + torchvision==0.18.1+cu121
+ + triton==2.3.1
+ + typing-extensions==4.15.0
+[4/6] Installing warp-lang...
+Resolved 2 packages in 913ms
+Downloading warp-lang (155.5MiB)
+ Downloaded warp-lang
+Prepared 1 package in 7.85s
+Installed 1 package in 59ms
+ + warp-lang==1.16.0
+[5/6] Installing remaining packages...
+Resolved 134 packages in 6.36s
+Downloading triton (188.5MiB)
+Downloading nvidia-cusolver (191.6MiB)
+Downloading nvidia-cusparselt-cu13 (162.3MiB)
+Downloading nvidia-cusparse (139.2MiB)
+Downloading warp-lang (132.2MiB)
+Downloading nvidia-cuda-nvrtc (86.0MiB)
+Downloading nvidia-nvshmem-cu13 (57.6MiB)
+Downloading nvidia-curand (56.8MiB)
+Downloading opencv-python (70.4MiB)
+Downloading nvidia-nvjitlink (38.8MiB)
+Downloading scipy (33.7MiB)
+Downloading wandb (25.5MiB)
+Downloading imageio-ffmpeg (28.1MiB)
+Downloading mujoco (19.8MiB)
+Downloading onnx (18.2MiB)
+Downloading numpy (16.1MiB)
+Downloading nvidia-cuda-cupti (10.2MiB)
+Downloading matplotlib (9.6MiB)
+Downloading torchvision (7.3MiB)
+Downloading pillow (6.6MiB)
+Downloading cuda-bindings (6.4MiB)
+Downloading grpcio (6.5MiB)
+Downloading tensorboard-data-server (6.3MiB)
+Downloading zstandard (5.3MiB)
+Downloading fonttools (4.8MiB)
+Downloading tensorboard (5.3MiB)
+Downloading ml-dtypes (4.8MiB)
+Downloading jedi (4.7MiB)
+Downloading viser (4.8MiB)
+Downloading cryptography (4.5MiB)
+Downloading pyopengl (3.0MiB)
+Downloading nvidia-cuda-runtime (2.1MiB)
+Downloading pydantic-core (2.0MiB)
+Downloading kiwisolver (1.4MiB)
+Downloading pynacl (1.3MiB)
+Downloading nvidia-cufile (1.2MiB)
+Downloading pygments (1.2MiB)
+Downloading setuptools (1.0MiB)
+Downloading pygame (13.3MiB)
+Downloading mujoco-warp (2.0MiB)
+Downloading torch (507.5MiB)
+Downloading nvidia-cublas (403.5MiB)
+Downloading nvidia-cufft (204.2MiB)
+Downloading nvidia-nccl-cu13 (196.4MiB)
+Downloading nvidia-cudnn-cu13 (349.2MiB)
+ Downloaded setuptools
+ Downloaded nvidia-cufile
+ Downloaded pygments
+ Downloaded pynacl
+ Downloaded kiwisolver
+ Downloaded nvidia-cuda-runtime
+ Downloaded pydantic-core
+ Downloaded mujoco-warp
+   Building feetech-servo-sdk==1.0.0
+ Downloaded pyopengl
+      Built feetech-servo-sdk==1.0.0
+ Downloaded cryptography
+ Downloaded jedi
+ Downloaded fonttools
+ Downloaded viser
+ Downloaded ml-dtypes
+ Downloaded zstandard
+ Downloaded tensorboard
+ Downloaded cuda-bindings
+ Downloaded tensorboard-data-server
+ Downloaded grpcio
+ Downloaded pillow
+ Downloaded torchvision
+ Downloaded matplotlib
+ Downloaded nvidia-cuda-cupti
+ Downloaded pygame
+ Downloaded numpy
+ Downloaded onnx
+ Downloaded mujoco
+ Downloaded wandb
+ Downloaded imageio-ffmpeg
+ Downloaded scipy
+ Downloaded nvidia-nvjitlink
+ Downloaded nvidia-curand
+ Downloaded nvidia-nvshmem-cu13
+ Downloaded opencv-python
+ Downloaded nvidia-cuda-nvrtc
+ Downloaded warp-lang
+ Downloaded nvidia-cusparse
+ Downloaded nvidia-cusparselt-cu13
+ Downloaded nvidia-cusolver
+  × Failed to download `triton==3.7.1`
+  ├─▶ Failed to extract archive:
+  │   triton-3.7.1-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to write to file
+      `/home/thakk100/.cache/uv/.tmpI1xc3C/triton/backends/nvidia/bin/ptxas`:
+      No space left on device (os error 28)
+WARN: bulk install had issues, trying one by one...
+Resolved 1 package in 85ms
+Installed 1 package in 3ms
+ + absl-py==2.4.0
+Resolved 1 package in 79ms
+Installed 1 package in 3ms
+ + annotated-types==0.7.0
+Resolved 1 package in 85ms
+Installed 1 package in 3ms
+ + asttokens==3.0.1
+Resolved 1 package in 74ms
+Installed 1 package in 105ms
+ + bcrypt==5.0.0
+Resolved 1 package in 207ms
+Installed 1 package in 3ms
+ + certifi==2026.6.17
+Resolved 2 packages in 403ms
+Installed 2 packages in 234ms
+ + cffi==2.0.0
+ + pycparser==3.0
+Resolved 1 package in 204ms
+Installed 1 package in 177ms
+ + charset-normalizer==3.4.7
+Resolved 1 package in 150ms
+Installed 1 package in 117ms
+ + click==8.4.2
+Resolved 1 package in 89ms
+Installed 1 package in 232ms
+ + cloudpickle==3.1.2
+Resolved 2 packages in 968ms
+Installed 1 package in 121ms
+ + contourpy==1.3.3
+Resolved 3 packages in 385ms
+Installed 1 package in 170ms
+ + cryptography==49.0.0
+Resolved 2 packages in 414ms
+Prepared 1 package in 170ms
+Installed 2 packages in 295ms
+ + cuda-bindings==13.3.1
+ + cuda-pathfinder==1.6.0
+Resolved 1 package in 43ms
+Uninstalled 1 package in 1ms
+Installed 1 package in 233ms
+ - cuda-pathfinder==1.6.0
+ + cuda-pathfinder==1.5.6
+Resolved 1 package in 97ms
+Installed 1 package in 119ms
+ + cuda-toolkit==13.0.2
+Resolved 1 package in 92ms
+Installed 1 package in 179ms
+ + cycler==0.12.1
+Resolved 1 package in 41ms
+Installed 1 package in 118ms
+ + decorator==5.3.1
+Resolved 2 packages in 539ms
+Prepared 1 package in 426ms
+Installed 2 packages in 668ms
+ + deprecated==1.3.1
+ + wrapt==2.3.0
+Resolved 1 package in 104ms
+Installed 1 package in 120ms
+ + docstring-parser==0.18.0
+Resolved 1 package in 35ms
+Installed 1 package in 180ms
+ + etils==1.14.0
+Resolved 1 package in 98ms
+Installed 1 package in 232ms
+ + executing==2.2.1
+Resolved 11 packages in 591ms
+Installed 4 packages in 419ms
+ + fabric==3.2.3
+ + invoke==2.2.1
+ + paramiko==5.0.0
+ + pynacl==1.6.2
+Resolved 1 package in 259ms
+Installed 1 package in 175ms
+ + farama-notifications==0.0.6
+Resolved 2 packages in 94ms
+Installed 2 packages in 174ms
+ + feetech-servo-sdk==1.0.0
+ + pyserial==3.5
+Resolved 1 package in 70ms
+Uninstalled 1 package in 70ms
+Installed 1 package in 126ms
+ - filelock==3.29.0
+ + filelock==3.29.4
+Resolved 1 package in 275ms
+Installed 1 package in 405ms
+ + fonttools==4.63.0
+Resolved 1 package in 194ms
+Uninstalled 1 package in 58ms
+Installed 1 package in 236ms
+ - fsspec==2026.4.0
+ + fsspec==2026.6.0
+Resolved 2 packages in 223ms
+Installed 2 packages in 236ms
+ + gitdb==4.0.12
+ + smmap==5.0.3
+Resolved 3 packages in 102ms
+Installed 1 package in 241ms
+ + gitpython==3.1.50
+Resolved 1 package in 341ms
+Installed 1 package in 157ms
+ + glfw==2.10.0
+Resolved 2 packages in 277ms
+Installed 1 package in 104ms
+ + grpcio==1.81.1
+Resolved 5 packages in 82ms
+Installed 1 package in 114ms
+ + gymnasium==1.3.0
+Resolved 1 package in 167ms
+Installed 1 package in 108ms
+ + idna==3.18
+Resolved 3 packages in 286ms
+Installed 1 package in 202ms
+ + imageio==2.37.3
+Resolved 1 package in 91ms
+Installed 1 package in 107ms
+ + imageio-ffmpeg==0.6.0
+Resolved 2 packages in 373ms
+Installed 2 packages in 36ms
+ + importlib-metadata==9.0.0
+ + zipp==4.1.0
+Checked 1 package in 1ms
+Resolved 18 packages in 349ms
+Prepared 2 packages in 135ms
+Installed 14 packages in 112ms
+ + ipython==9.15.0
+ + ipython-pygments-lexers==1.1.1
+ + jedi==0.20.0
+ + matplotlib-inline==0.2.2
+ + parso==0.8.7
+ + pexpect==4.9.0
+ + prompt-toolkit==3.0.53
+ + psutil==7.2.2
+ + ptyprocess==0.7.0
+ + pure-eval==0.2.3
+ + pygments==2.20.0
+ + stack-data==0.6.3
+ + traitlets==5.16.1
+ + wcwidth==0.8.2
+Checked 1 package in 1ms
+Checked 1 package in 1ms
+Checked 1 package in 1ms
+Resolved 1 package in 13ms
+Installed 1 package in 2ms
+ + kiwisolver==1.5.0
+Resolved 1 package in 9ms
+Installed 1 package in 3ms
+ + markdown==3.10.2
+Resolved 2 packages in 8ms
+Installed 2 packages in 4ms
+ + markdown-it-py==4.2.0
+ + mdurl==0.1.2
+Checked 1 package in 1ms
+Resolved 11 packages in 155ms
+Prepared 1 package in 91ms
+Installed 5 packages in 11ms
+ + matplotlib==3.11.0
+ + packaging==26.3
+ + pyparsing==3.3.2
+ + python-dateutil==2.9.0.post0
+ + six==1.17.0
+Checked 1 package in 1ms
+Checked 1 package in 1ms
+Resolved 30 packages in 21ms
+Installed 1 package in 2ms
+ + mediapy==1.2.7
+Resolved 27 packages in 304ms
+Downloading mujoco (17.9MiB)
+ Downloaded mujoco
+Prepared 3 packages in 710ms
+Installed 12 packages in 56ms
+ + mjviser==0.0.14
+ + msgspec==0.21.1
+ + mujoco==3.11.0
+ + pyopengl==3.1.10
+ + requests==2.34.2
+ + rich==14.3.4
+ + tqdm==4.70.0
+ + trimesh==4.12.2
+ + urllib3==2.7.0
+ + viser==1.0.30
+ + websockets==16.1.1
+ + zstandard==0.25.0
+Resolved 2 packages in 6ms
+Installed 1 package in 2ms
+ + ml-dtypes==0.5.4
+Checked 1 package in 1ms
+Checked 1 package in 1ms
+Resolved 9 packages in 16ms
+Uninstalled 1 package in 3ms
+Installed 1 package in 6ms
+ - mujoco==3.11.0
+ + mujoco==3.10.0
+Resolved 11 packages in 20ms
+Installed 1 package in 8ms
+ + mujoco-warp==3.10.0.1
+Checked 1 package in 1ms
+Resolved 1 package in 19ms
+Uninstalled 1 package in 14ms
+Installed 1 package in 17ms
+ - numpy==2.4.4
+ + numpy==2.4.6
+Resolved 5 packages in 21ms
+Installed 2 packages in 234ms
+ + onnx==1.22.0
+ + protobuf==7.35.1
+Resolved 8 packages in 15ms
+Installed 1 package in 3ms
+ + onnx-ir==0.2.1
+Resolved 10 packages in 19ms
+Installed 1 package in 5ms
+ + onnxscript==0.7.1
+Resolved 2 packages in 11ms
+Installed 1 package in 3ms
+ + opencv-python==5.0.0.93
+Resolved 1 package in 13ms
+Installed 1 package in 2ms
+ + orjson==3.11.9
+Resolved 1 package in 10ms
+Uninstalled 1 package in 0.67ms
+Installed 1 package in 2ms
+ - packaging==26.3
+ + packaging==26.0
+Checked 1 package in 2ms
+Checked 1 package in 1ms
+Checked 1 package in 2ms
+Resolved 1 package in 13ms
+Uninstalled 1 package in 1ms
+Installed 1 package in 4ms
+ - pillow==12.2.0
+ + pillow==12.3.0
+Resolved 1 package in 10ms
+Installed 1 package in 2ms
+ + platformdirs==4.10.0
+Resolved 2 packages in 10ms
+Installed 1 package in 2ms
+ + prettytable==3.18.0
+Resolved 2 packages in 9ms
+Uninstalled 1 package in 2ms
+Installed 1 package in 4ms
+ - prompt-toolkit==3.0.53
+ + prompt-toolkit==3.0.52
+Checked 1 package in 1ms
+Checked 1 package in 1ms
+Checked 1 package in 2ms
+Checked 1 package in 1ms
+Checked 1 package in 1ms
+Resolved 5 packages in 158ms
+Prepared 1 package in 48ms
+Installed 3 packages in 12ms
+ + pydantic==2.13.4
+ + pydantic-core==2.46.4
+ + typing-inspection==0.4.4
+Checked 1 package in 1ms
+Resolved 1 package in 15ms
+Installed 1 package in 10ms
+ + pygame==2.6.1
+Checked 1 package in 1ms
+Checked 1 package in 2ms
+Checked 1 package in 2ms
+Checked 1 package in 1ms
+Checked 1 package in 1ms
+Checked 1 package in 1ms
+Resolved 1 package in 9ms
+Installed 1 package in 2ms
+ + pyvers==0.2.2
+Resolved 1 package in 8ms
+Installed 1 package in 2ms
+ + pyyaml==6.0.3
+Checked 1 package in 2ms
+Checked 1 package in 2ms
+Resolved 54 packages in 187ms
+Downloading nvidia-cufft (204.2MiB)
+Downloading nvidia-nccl-cu13 (196.4MiB)
+Downloading triton (188.5MiB)
+Downloading nvidia-nvjitlink (38.9MiB)
+Downloading torchvision (7.3MiB)
+Downloading torch (502.2MiB)
+Downloading nvidia-cublas (403.5MiB)
+Downloading nvidia-cudnn-cu13 (349.2MiB)
+ Downloaded torchvision
+ Downloaded nvidia-nvjitlink
+  × Failed to download `nvidia-nccl-cu13==2.29.7`
+  ├─▶ Failed to extract archive:
+  │   nvidia_nccl_cu13-2.29.7-py3-none-manylinux_2_18_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to write to file
+      `/home/thakk100/.cache/uv/.tmpT6aFeN/nvidia/nccl/lib/libnccl.so.2`: No
+      space left on device (os error 28)
+
+hint: `nvidia-nccl-cu13` (v2.29.7) was included because `rsl-rl-lib` (v5.4.0) depends on `torch` (v2.13.0) which depends on `nvidia-nccl-cu13`SKIP: rsl-rl-lib==5.4.0
+Resolved 2 packages in 22ms
+Installed 1 package in 28ms
+ + scipy==1.17.1
+Resolved 3 packages in 6ms
+Installed 1 package in 7ms
+ + sentry-sdk==2.64.0
+Checked 1 package in 1ms
+Checked 1 package in 1ms
+Checked 1 package in 2ms
+Checked 1 package in 2ms
+Resolved 13 packages in 25ms
+Installed 4 packages in 9ms
+ + setuptools==84.0.0
+ + tensorboard==2.21.0
+ + tensorboard-data-server==0.7.2
+ + werkzeug==3.1.8
+Checked 1 package in 1ms
+Resolved 30 packages in 83ms
+Installed 1 package in 3ms
+ + tensordict==0.13.0
+Resolved 36 packages in 24ms
+Installed 1 package in 2ms
+ + torchrunx==0.3.4
+Resolved 1 package in 13ms
+Uninstalled 1 package in 0.87ms
+Installed 1 package in 4ms
+ - tqdm==4.70.0
+ + tqdm==4.68.3
+Resolved 1 package in 1ms
+Uninstalled 1 package in 0.72ms
+Installed 1 package in 2ms
+ - traitlets==5.16.1
+ + traitlets==5.15.1
+Checked 1 package in 2ms
+Resolved 1 package in 1ms
+Downloading triton (188.5MiB)
+ Downloaded triton
+Prepared 1 package in 6.22s
+Uninstalled 1 package in 4ms
+Installed 1 package in 7ms
+ - triton==2.3.1
+ + triton==3.7.1
+Resolved 2 packages in 2ms
+Installed 1 package in 2ms
+ + typeguard==4.5.2
+Resolved 2 packages in 3ms
+Uninstalled 1 package in 0.44ms
+Installed 1 package in 2ms
+ - typing-inspection==0.4.4
+ + typing-inspection==0.4.2
+Resolved 1 package in 4ms
+Uninstalled 1 package in 0.57ms
+Installed 1 package in 2ms
+ - typing-extensions==4.15.0
+ + typing-extensions==4.16.0
+Resolved 4 packages in 5ms
+Installed 1 package in 2ms
+ + tyro==1.0.15
+Checked 1 package in 2ms
+Checked 1 package in 2ms
+Resolved 20 packages in 29ms
+Installed 1 package in 11ms
+ + wandb==0.28.0
+Resolved 2 packages in 8ms
+Uninstalled 1 package in 7ms
+Installed 1 package in 8ms
+ - warp-lang==1.16.0
+ + warp-lang==1.14.0
+Checked 1 package in 1ms
+Resolved 1 package in 7ms
+Uninstalled 1 package in 1ms
+Installed 1 package in 4ms
+ - websockets==16.1.1
+ + websockets==16.0
+Checked 1 package in 1ms
+Resolved 1 package in 13ms
+Uninstalled 1 package in 0.67ms
+Installed 1 package in 2ms
+ - wrapt==2.3.0
+ + wrapt==2.2.2
+Checked 1 package in 2ms
+Checked 1 package in 2ms
+[6/6] Editable installs (mjlab, skrl)...
+Resolved 129 packages in 198ms
+   Building mjlab @ file:///home/thakk100/Projects/so101_mnri/third_party/mjlab
+Downloading nvidia-cufft (204.2MiB)
+Downloading nvidia-nccl-cu13 (196.4MiB)
+Downloading nvidia-cudnn-cu13 (349.2MiB)
+Downloading torch (502.2MiB)
+Downloading nvidia-cublas (403.5MiB)
+      Built mjlab @ file:///home/thakk100/Projects/so101_mnri/third_party/mjlab
+  × Failed to download `nvidia-nccl-cu13==2.29.7`
+  ├─▶ Failed to extract archive:
+  │   nvidia_nccl_cu13-2.29.7-py3-none-manylinux_2_18_x86_64.whl
+  ├─▶ I/O operation failed during extraction
+  ╰─▶ failed to write to file
+      `/home/thakk100/.cache/uv/.tmp7G6oxT/nvidia/nccl/lib/libnccl.so.2`: No
+      space left on device (os error 28)
+
+hint: `nvidia-nccl-cu13` (v2.29.7) was included because `mjlab` (v1.5.0) depends on `torch` (v2.13.0) which depends on `nvidia-nccl-cu13`FAIL: third_party/mjlab
+Resolved 18 packages in 13ms
+   Building skrl @ file:///home/thakk100/Projects/so101_mnri/third_party/skrl
+      Built skrl @ file:///home/thakk100/Projects/so101_mnri/third_party/skrl
+Prepared 1 package in 531ms
+Installed 1 package in 0.66ms
+ + skrl==2.1.0 (from file:///home/thakk100/Projects/so101_mnri/third_party/skrl)
+OK: third_party/skrl
+
+=== DONE Wed Aug 12 08:39:38 PM CDT 2026 ===
+Activate: source /home/thakk100/Projects/so101_mnri/.venv/bin/activate

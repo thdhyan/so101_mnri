@@ -1,0 +1,19 @@
+# Minimal training-focused Dockerfile
+# Smaller image for deployment on remote GPUs
+
+FROM so101-il:base AS train
+
+# Copy only what's needed for training
+COPY vla/ /workspace/vla/
+COPY envs/ /workspace/envs/
+COPY rl/ /workspace/rl/
+COPY robots/ /workspace/robots/
+COPY scripts/ /workspace/scripts/
+COPY IL_PLAN.md /workspace/
+COPY ENVS.md /workspace/
+
+ENV PYTHONPATH=/workspace
+
+# Training entrypoint
+ENTRYPOINT ["python3.12", "-m", "vla.finetune"]
+CMD ["--backend", "smolvla", "--dataset", "thakk100/so101_duck_push", "--steps", "10000"]
