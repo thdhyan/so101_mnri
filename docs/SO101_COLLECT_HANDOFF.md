@@ -446,6 +446,7 @@ the other. Set it before the first episode, or start a new `REPO_ID`.
 ```bash
 bash scripts/record_so101.sh --dry-run        # argv LeRobot would get; no hardware
 .venv/bin/python scripts/check_record_config.py --deep   # really opens both cameras
+.venv/bin/python scripts/check_joint_range.py --arm leader --compare   # motor posture
 .venv/bin/python scripts/check_pose_sync.py --watch     # live, until aligned
 ```
 
@@ -455,6 +456,40 @@ any joint is more than `MAX_POSE_DELTA` (default 10°) off. This matters:
 stalls six servos against gravity, sags the rail, and kills the Feetech bus —
 which presents as a flaky cable, not as a software bug. Move the arm **in your
 hand**. Override with `SKIP_POSE_GATE=true` only if you really mean it.
+
+### Which check answers which question
+
+Four checks, all read-only, and they are not interchangeable:
+
+| script | question it answers | when |
+|---|---|---|
+| `scripts/check_pose_sync.py` | **the arm delta**: how far the leader pose is from the follower pose, joint by joint, in degrees | before every take — this is the `MAX_POSE_DELTA` gate the launcher enforces |
+| `scripts/check_joint_range.py` | the **motor posture**: each joint's live travel as a % of its calibrated range, against the raw 0..4095 counts the servo reports | when a joint reads pinned at 0 % or 100 %, i.e. the arm is at a limit it should not be at |
+| `scripts/check_bus_health.py` | per-motor voltage and current, and whether the bus is alive | when the bus drops packets, or a motor is not moving at all |
+| `scripts/check_record_config.py` | the whole config: ports by USB serial, calibration files, camera modes, the argv LeRobot will get | once per session, and after any change to `so101_env.sh` |
+
+`check_pose_sync.py` prints a `delta` column per joint and the worst one:
+
+```
+joint           leader   follower      delta   move leader
+shoulder_lift     44.0      45.0       -1.0
+elbow_flex        95.0      51.0      +44.0   <-- too far
+```
+
+`check_joint_range.py --compare` is the one that catches a **bad calibration**
+rather than a bad pose: if a joint sits at 1 % or 99 % of its range on every
+read, the calibration records more travel than the joint has, and no amount of
+re-aligning will help. That is what it found on this rig before the
+2026-09-25 re-calibration — the follower's `shoulder_lift` was recorded over a
+0..4093 span, i.e. the full raw count range, when the joint really travels
+756..3097. Both files were re-calibrated that evening and the previous ones
+are kept in `robots/so101/calibration/backup-20260925-215302/`.
+
+The **printed base** is a different thing entirely: `SO101-ref/check_base_M5.py`
+checks the M5 base CAD (seat floors, countersink angle, the wall left around
+each seat). It is a geometry check on a mesh, it needs no arms and no cameras,
+and it has nothing to do with a recording session. Run it with
+`/usr/bin/python3 SO101-ref/check_base_M5.py` from `SO101-ref/`.
 
 ## Known traps
 
