@@ -1,0 +1,57 @@
+# skrl PPO config shared by all SO-101 tasks (all sim backends).
+# Values mirror rl/agents/rsl_rl_cfg.py so both libraries train comparable
+# policies. Consumed by skrl's Runner utility (rl/train.py --algo skrl).
+
+seed: 42
+
+models:
+  separate: true
+  policy:
+    - name: net
+      input: STATES
+      layers: [256, 128, 64]
+      activations: elu
+  value:
+    - name: net
+      input: STATES
+      layers: [256, 128, 64]
+      activations: elu
+
+agent:
+  class: ppo
+  hyperparameters:
+    discount_factor: 0.99
+    lambda: 0.95
+    learning_rate: 1.0e-3
+    learning_rate_scheduler: KLAdaptiveLR
+    learning_rate_scheduler_kwargs:
+      kl_threshold: 0.01
+    state_preprocessor: RunningStandardScaler
+    state_preprocessor_kwargs:
+      size: null
+      device: null
+    value_preprocessor: RunningStandardScaler
+    value_preprocessor_kwargs:
+      size: 1
+      device: null
+    random_timesteps: 0
+    learning_starts: 0
+    grad_norm_clip: 1.0
+    ratio_clip: 0.2
+    value_clip: 0.2
+    clip_predicted_values: true
+    entropy_loss_scale: 0.0
+    value_loss_scale: 1.0
+    kl_threshold: 0
+    time_minibatches: true
+    mini_batches: 4
+    discount_factor_update_interval: null
+    rollouts: 24
+    learning_epochs: 5
+
+memory:
+  class: RandomMemory
+  size: null
+
+tracking:
+  write_interval: 50

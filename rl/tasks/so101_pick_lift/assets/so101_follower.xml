@@ -1,0 +1,8 @@
+<?xml version="1.0" ?>
+<!-- mjlab entity wrapper: loads the canonical robots/so101/so101_follower.xml
+     standalone. meshdir must be set here (top-level file), not in the
+     included file — see robots/so101/README.md "MuJoCo path resolution note". -->
+<mujoco model="so101_pick_lift_robot">
+  <compiler meshdir="../../../../robots/so101/meshes" angle="radian" autolimits="true"/>
+  <include file="../../../../robots/so101/so101_follower.xml"/>
+</mujoco>
