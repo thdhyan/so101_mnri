@@ -6,6 +6,16 @@ Six MuJoCo `gymnasium.Env` implementations built on the SO-101 follower arm
 (pick-lift, pick-and-place, cylinder-grasp, cylinder-reach). All share robot
 definitions from `robots/so101/` (see that dir's README for provenance).
 
+Per-task MDP specs (rewards, obs/action spaces, termination, training) live
+in each env's `MDP.md` — index at root [`MDP.md`](MDP.md). Isaac Lab ports
+of the four task envs: [`envs/isaac/`](isaac/README.md).
+
+All envs expose a full camera suite: per-arm wrist cams + global
+`overhead_cam` (top-down) and `front_cam` (workspace view). Every camera's
+pos/euler/fov is runtime-customizable via `CameraConfig` entries in each
+`env.py`. Dual-arm geometry: follower bases 18 in (0.4572 m) apart in Y,
+Z/X axes parallel (matches the real rig).
+
 ## Single arm — `envs/mujoco/so101_single_arm/`
 
 One SO-101 arm at a table with a cube (task object) and a goal marker.
@@ -75,6 +85,59 @@ Single SO-101 arm grasps a cube and places it on a flat target disc.
 - **Entry point:** `envs.mujoco.so101_single_arm_pick_place.env.make_env(n_envs, use_async_envs, cfg)`
 
 ![Pick-and-place camera streams](images/pick_place_cameras.png)
+
+### Push-T — `envs/mujoco/so101_single_arm_push_t/`
+
+![Push-T setup](images/push_t_overview.png)
+
+Single SO-101 arm pushes a T-shaped block (gripper closed, non-prehensile)
+onto a target T outline drawn on the table. Success: T center within 2.5 cm
+AND yaw within 15 deg. Details: `so101_single_arm_push_t/MDP.md`.
+
+- **Joints/actuators (6):** same as single arm above
+- **EE site:** `gripperframe`
+- **Cameras (3):** `wrist`, `overhead`, `front`
+- **Action space:** `(6,)` target joint positions, radians
+- **Entry point:** `envs.mujoco.so101_single_arm_push_t.env.make_env(n_envs, use_async_envs, cfg)`
+
+
+![Push-T camera streams](images/push_t_cameras.png)
+
+### Cube push (ramp) — `envs/mujoco/so101_single_arm_cube_push_ramp/`
+
+![Cube push (ramp) setup](images/cube_push_ramp_overview.png)
+
+Single SO-101 arm pushes a cube along an inclined ramp to a goal patch at the
+top. Non-prehensile pushing; supports `obs_mode="full"|"belief"` (POMDP
+variant with cube pose hidden — see MDP.md). Details:
+`so101_single_arm_cube_push_ramp/MDP.md`.
+
+- **Joints/actuators (6):** same as single arm above
+- **EE site:** `gripperframe`
+- **Cameras (3):** `wrist`, `overhead`, `front`
+- **Action space:** `(6,)` target joint positions, radians
+- **Entry point:** `envs.mujoco.so101_single_arm_cube_push_ramp.env.make_env(n_envs, use_async_envs, cfg)`
+
+
+![Cube push (ramp) camera streams](images/cube_push_ramp_cameras.png)
+
+### Cube push (bridge) — `envs/mujoco/so101_single_arm_cube_push_bridge/`
+
+![Cube push (bridge) setup](images/cube_push_bridge_overview.png)
+
+Single SO-101 arm pushes a cube across a narrow bridge between two table
+sections to a goal patch on the far side; the cube falls off if pushed
+carelessly. Supports `obs_mode="full"|"belief"`. Details:
+`so101_single_arm_cube_push_bridge/MDP.md`.
+
+- **Joints/actuators (6):** same as single arm above
+- **EE site:** `gripperframe`
+- **Cameras (3):** `wrist`, `overhead`, `front`
+- **Action space:** `(6,)` target joint positions, radians
+- **Entry point:** `envs.mujoco.so101_single_arm_cube_push_bridge.env.make_env(n_envs, use_async_envs, cfg)`
+
+
+![Cube push (bridge) camera streams](images/cube_push_bridge_cameras.png)
 
 ### Cylinder grasp — `envs/mujoco/so101_dual_arm_cylinder_grasp/`
 

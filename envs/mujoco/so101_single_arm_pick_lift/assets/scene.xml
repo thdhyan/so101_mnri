@@ -53,6 +53,10 @@
     <!-- World-fixed cameras: positions/euler overridden at runtime from CameraConfig -->
     <camera name="outside_left"  pos="-0.15 -0.65 0.90" euler="0 -30 0" fovy="65"/>
     <camera name="outside_right" pos=" 0.85 -0.65 0.90" euler="0 -30 0" fovy="65"/>
+    <!-- Global cameras covering the entire workspace (positions/euler overridable
+         at runtime via the matching CameraConfig entries in env.py) -->
+    <camera name="overhead_cam" pos="0.40 0.0 1.45" euler="0 0 90" fovy="65"/>
+    <camera name="front_cam"    pos="0.40 -1.0 1.05" euler="75 0 0" fovy="65"/>
   </worldbody>
 
   <keyframe>
