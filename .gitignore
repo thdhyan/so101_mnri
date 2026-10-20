@@ -1,3 +1,9 @@
+.venv/
+
+# Real-robot recordings and camera-tuning output. data/ holds multi-GB
+# LeRobotDatasets (video + parquet); none of it belongs in git.
+data/
+
 __pycache__/
 *.pyc
 .DS_Store
