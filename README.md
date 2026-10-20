@@ -105,3 +105,12 @@ images/                  screenshots used in this README / ENVS.md
 If you're an agent picking up follow-on work in this repo, start at
 **[AGENT_TASKS.md](AGENT_TASKS.md)** — open tasks, validation steps, and
 constraints (e.g. don't duplicate meshes outside `robots/so101/`).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CONTRIBUTORS.md](CONTRIBUTORS.md).
+
+## License
+
+[CC BY-NC 4.0](LICENSE): free to share and adapt with attribution, for
+non-commercial use only.
