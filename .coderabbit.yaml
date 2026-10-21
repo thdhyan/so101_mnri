@@ -1,0 +1,100 @@
+# CodeRabbit configuration.
+#
+# CodeRabbit is free for public repositories and needs no API key -- install
+# the CodeRabbit app on the repo and it starts reviewing pull requests.
+# The rules it checks are the repo's own, in .github/review-instructions.md.
+#
+# If you would rather not install an app, use the AI review workflow
+# (.github/workflows/ai-review.yml, needs an ANTHROPIC_API_KEY secret) or
+# GitHub's own Copilot code review, which reads
+# .github/copilot-instructions.md.
+
+language: en
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+
+  # The repo has never been linted, so do not send the noise. These are the
+  # rules that matter.
+  ignore_title_checks: false
+  only_comment_on_code_files: true
+  path_filters:
+    - "!third_party/**"
+    - "!SO101-ref/**"
+    - "!data/**"
+
+  rules:
+    - path: "**/*.py"
+      instructions: |
+        This is a MuJoCo / Isaac Sim robot-arm repo with real-robot data
+        collection. Read .github/review-instructions.md and check the change
+        against it.
+
+        Rules that are not style, they are bugs that already happened here:
+        - A change to robots/so101/calibration/*.json is a recalibration and
+          is almost always wrong. The leader and the follower are compared in
+          degrees derived from those files, and recalibrating one moves its
+          zero point, so the pose gate fails and the servos lunge against
+          gravity. The right fix is to read the true travel with
+          scripts/check_joint_range.py --compare and correct range_min /
+          range_max by hand.
+        - /dev/ttyACM* must never be hardcoded; arms are resolved by USB
+          serial.
+        - Meshes and robot models belong only under robots/so101/ and must not
+          be duplicated under envs/.
+        - envs/isaac/assets/ is generated from the URDF; do not hand-edit it.
+        - Joint and site names are a stable contract: shoulder_pan,
+          shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper (with
+          optional left_/right_ prefixes) and gripperframe /
+          left_gripperframe / right_gripperframe. Renaming one without
+          updating every consumer breaks unrelated scripts.
+        - The recording path must keep writing a stock LeRobot v3.0 dataset.
+          No custom writer, no custom format.
+        - data/, checkpoints, .venv/ and docker/.env must never be committed.
+
+  path_instructions:
+    - path: "scripts/record_*.py"
+      instructions: |
+        The recording scripts monkeypatch LeRobot. The invariants that matter:
+        episode_outcome_keys._EVENTS must BE LeRobot's events dict, never a
+        copy; a re-record must clear any pending label; --profile must write
+        to <REPO_ID>_profile and never to the real dataset; quitting with Ctrl+C
+        twice leaves an unloadable dataset.
+    - path: "scripts/episode_*.py"
+      instructions: |
+        These define the outcome keys and the per-episode prompt. The label
+        chosen for an episode must survive a 'd' re-record, and the prompt is
+        frozen on the first frame of an episode so a mid-take keypress cannot
+        split it across two task strings.
+    - path: "envs/**"
+      instructions: |
+        Discover cameras and joints dynamically (model.ncam, model.joint(name))
+        rather than hardcoding lists -- scenes gain cameras over time. MuJoCo
+        includes its assets from robots/so101/ with a relative meshdir, so a
+        second copy of a mesh under envs/ breaks the include.
+
+  suggested_reviewers:
+    - "thdhyan"
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    ignore_title_checks: false
+    labels: []
+    drafts: false
+
+  language: en-US
+
+# The repo writes one sentence per rule, not essays.
+comments:
+  inline:
+    only: true
+  request_changes: false
+  enabled: true
+  remember: true
+  style: "github"
+
+# No diagrams for a repo that does not use them.
+diagram:
+  enabled: false

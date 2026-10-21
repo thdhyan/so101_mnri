@@ -1,0 +1,83 @@
+name: AI review
+
+# An AI reviewer on every pull request, using the repo's own rules
+# (.github/review-instructions.md) rather than generic advice.
+#
+# This workflow needs a secret. Without one it does nothing at all -- it is
+# not an error, it just skips:
+#
+#   repo settings -> Secrets and variables -> Actions -> New repository
+#   secret -> ANTHROPIC_API_KEY
+#
+# Two ways to get a key:
+#   - Anthropic console, an API key with credit on it.
+#   - Nothing to do if you use GitHub Copilot instead: enable Copilot code
+#     review in the repo settings and it reads .github/copilot-instructions.md
+#     on its own. Or install the CodeRabbit app (free for public repos) and
+#     it reads .coderabbit.yaml.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  review:
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+            HEAD: ${{ github.event.pull_request.head.ref }}
+
+            Review this pull request.
+
+            First read `.github/review-instructions.md` and follow it exactly
+            -- it lists the rules for this repo, most of which are bugs that
+            have already happened on the real rig. Then read
+            `.github/claude-instructions.md` and `AGENT_TASKS.md` for
+            context.
+
+            Focus on:
+            - Does this change break any of the rules in
+              `.github/review-instructions.md`? Say so plainly and point at
+              the line. The calibration, the `/dev/ttyACM*` rule, duplicated
+              meshes and the joint-name contract are the ones that bite.
+            - Real bugs: wrong units (rad vs deg), wrong array shapes, an
+              exception that escapes, a resource left open, a name used before
+              it is bound.
+            - Will the checks in CI actually cover this change, and does the
+              change need a check that is missing?
+
+            Do not comment on formatting, import order, or the fact that a
+            function is long. Do not propose rewrites for style.
+
+            Report what is actually wrong, ranked by how much it would hurt on
+            the real rig. If the change is fine, say that in one line -- do
+            not invent findings.
+
+            The PR branch is already checked out in the working directory.
+
+            Use `gh pr comment` for top-level feedback.
+            Use `mcp__github_inline_comment__create_inline_comment` (with
+            `confirmed: true`) to point at the specific line.
+
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Read"
