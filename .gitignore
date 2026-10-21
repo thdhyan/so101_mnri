@@ -6,7 +6,12 @@ data/
 
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
 .DS_Store
+
+# MuJoCo writes its log next to the process; it is not source.
+MUJOCO_LOG.TXT
 images/*
 !images/single_arm_overview.png
 !images/dual_arm_overview.png

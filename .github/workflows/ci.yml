@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - name: ruff (errors only)
+        run: ruff check .
+      - name: every script must at least parse
+        run: python -m compileall -q scripts envs tests
+
+  unit:
+    name: unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - name: mesa for a headless GL context
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6-dev libegl1-mesa libgl1-mesa-dri
+      - name: pick a working OpenGL backend
+        run: |
+          for backend in egl osmesa; do
+            if MUJOCO_GL=$backend python -c "import mujoco; ctx = mujoco.MjrContext(mujoco.MjModel.from_xml_string('<mujoco/>')); ctx.free()"; then
+              echo "MUJOCO_GL=$backend" >> "$GITHUB_ENV"
+              echo "using $backend"
+              exit 0
+            fi
+          done
+          echo "::error::no working OpenGL backend (tried egl and osmesa)"
+          exit 1
+      - name: pytest
+        run: pytest tests/ -v
+
+  sim-smoke:
+    name: mujoco env smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements-dev.txt
+      - name: mesa for a headless GL context
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libosmesa6-dev libegl1-mesa libgl1-mesa-dri
+      - name: pick a working OpenGL backend
+        run: |
+          for backend in egl osmesa; do
+            if MUJOCO_GL=$backend python -c "import mujoco; ctx = mujoco.MjrContext(mujoco.MjModel.from_xml_string('<mujoco/>')); ctx.free()"; then
+              echo "MUJOCO_GL=$backend" >> "$GITHUB_ENV"
+              echo "using $backend"
+              exit 0
+            fi
+          done
+          echo "::error::no working OpenGL backend (tried egl and osmesa)"
+          exit 1
+      - name: build the env, render the cameras, take a few steps
+        run: python scripts/verify_manual.py --env single --headless-check
+      - name: and the dual-arm rig
+        run: python scripts/verify_manual.py --env dual --headless-check

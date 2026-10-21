@@ -1,0 +1,51 @@
+name: recording tests
+
+# The real-robot recording patches (episode outcomes, per-episode prompts,
+# turn-based triggering, camera flip) are covered by four standalone scripts
+# that need LeRobot -- and LeRobot needs torch, which is a ~1.7 GB install.
+#
+# That is too heavy to run on every PR, so this workflow only runs when the
+# code it covers changes, and on main. Everything else is in ci.yml, which is
+# fast.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "scripts/episode_*.py"
+      - "scripts/so101_camera_flip.py"
+      - "scripts/test_*.py"
+      - ".github/workflows/recording-tests.yml"
+
+concurrency:
+  group: recording-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  recording:
+    name: recording patch tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: install LeRobot (pulls torch)
+        run: |
+          pip install --upgrade pip
+          pip install "lerobot[dataset]==0.6.1"
+      - name: episode outcome keys, zone and prompt sidecar
+        run: python scripts/test_episode_outcomes.py
+      - name: per-episode prompt -> tasks.parquet
+        run: python scripts/test_episode_task.py
+      - name: turn-based gating and the reset boundary
+        run: python scripts/test_episode_trigger.py
+      - name: camera flip patch
+        run: python scripts/test_camera_flip.py

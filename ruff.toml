@@ -1,0 +1,23 @@
+# Lint gate for the SO-101 MNRI repo.
+#
+# Errors only for now: the repo has never been linted, so a style gate would
+# fail on ~400 pre-existing violations on the first run and every PR would be
+# red. These rules catch the things that are actually broken -- syntax errors,
+# undefined names, a name used before it is bound -- and nothing else.
+#
+# Widen `select` as the tree gets cleaned; F401 (unused imports) is the
+# biggest pile waiting.
+
+line-length = 120
+target-version = "py312"
+
+exclude = [
+    "third_party",   # submodules, not ours
+    "SO101-ref",     # reference renders, not shipped code
+]
+
+[lint]
+select = ["E9", "F63", "F7", "F82"]
+
+[format]
+quote-style = "double"

@@ -56,6 +56,22 @@ bash scripts/record_so101.sh --dry-run
 
 Run the ones that touch your change, and any env smoke test for sim changes.
 
+## CI
+
+GitHub Actions runs on every PR:
+
+| job | what it does |
+|---|---|
+| `lint` | `ruff check .` (errors only) and a compile check on every script |
+| `unit` | `pytest tests/` — the calibration guard, the env name contract, the teleop regression |
+| `sim-smoke` | `verify_manual.py --headless-check` for the single- and dual-arm envs |
+| `recording` | the four recording-patch scripts above — only when they change, because LeRobot is a 1.7 GB install |
+
+Install what CI installs with `pip install -r requirements-dev.txt`.
+
+`tests/test_calibration_guard.py` is the tripwire for the safety rule below: if
+anyone runs `calibrate_arm.py`, CI goes red.
+
 ## License
 
 By contributing you agree that your contributions are licensed under the
