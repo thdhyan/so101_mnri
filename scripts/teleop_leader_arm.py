@@ -202,8 +202,8 @@ def run_teleop(env, ports, calib_path):
     dt_ctrl = 1.0 / CONTROL_HZ
     substeps = max(1, int(round(dt_ctrl / model.opt.timestep)))
 
-    import mujoco.viewer
-    viewer = mujoco.viewer.launch_passive(model, data)
+    import mujoco.viewer as mujoco_viewer
+    viewer = mujoco_viewer.launch_passive(model, data)
     try:
         running = True
         while running and viewer.is_running():
